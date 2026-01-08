@@ -1,0 +1,54 @@
+===============================================
+CONTACT SERVICE API - ENDPOINT URLs
+===============================================
+
+Base URL: http://localhost:3001
+
+===============================================
+HEALTH CHECK
+===============================================
+
+GET     http://localhost:3001/health
+
+
+===============================================
+GROUPS API
+===============================================
+
+POST    http://localhost:3001/api/groups
+POST    http://localhost:3001/api/groups/list
+POST    http://localhost:3001/api/groups/detail/:id
+POST    http://localhost:3001/api/groups/update/:id
+POST    http://localhost:3001/api/groups/delete/:id
+
+
+===============================================
+CONTACTS API
+===============================================
+
+POST    http://localhost:3001/api/contacts
+POST    http://localhost:3001/api/contacts/list
+POST    http://localhost:3001/api/contacts/detail/:id
+POST    http://localhost:3001/api/contacts/update/:id
+POST    http://localhost:3001/api/contacts/delete/:id
+POST    http://localhost:3001/api/contacts/favorite/:id
+POST    http://localhost:3001/api/contacts/assign-to-group
+POST    http://localhost:3001/api/contacts/remove-from-group
+
+
+===============================================
+QUERY PARAMETERS
+===============================================
+
+POST /api/groups/list
+  ?includeContacts=true
+
+POST /api/contacts/list
+  ?page=1
+  ?limit=10
+  ?search=john
+  ?favorite=true
+  ?groupId=1
+
+
+===============================================

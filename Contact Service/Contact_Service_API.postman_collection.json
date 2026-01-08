@@ -1,0 +1,565 @@
+{
+  "info": {
+    "name": "Contact Service API",
+    "description": "Microservice for managing contacts and groups with MySQL and JWT authentication",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "version": "1.0.0"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{jwt_token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:3000",
+      "type": "string"
+    },
+    {
+      "key": "jwt_token",
+      "value": "your_jwt_token_here",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "Health Check",
+      "item": [
+        {
+          "name": "Health Check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/health",
+              "host": ["{{base_url}}"],
+              "path": ["health"]
+            },
+            "description": "Check if the service is running"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Groups",
+      "item": [
+        {
+          "name": "Create Group",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{jwt_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Work Contacts\",\n  \"description\": \"My work colleagues and professional network\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/groups",
+              "host": ["{{base_url}}"],
+              "path": ["api", "groups"]
+            },
+            "description": "Create a new group for the authenticated user"
+          },
+          "response": []
+        },
+        {
+          "name": "Get All Groups",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{jwt_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/groups?includeContacts=true",
+              "host": ["{{base_url}}"],
+              "path": ["api", "groups"],
+              "query": [
+                {
+                  "key": "includeContacts",
+                  "value": "true",
+                  "description": "Include contacts in each group"
+                }
+              ]
+            },
+            "description": "Get all groups for the authenticated user"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Group by ID",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{jwt_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/groups/1",
+              "host": ["{{base_url}}"],
+              "path": ["api", "groups", "1"]
+            },
+            "description": "Get a specific group with all its contacts"
+          },
+          "response": []
+        },
+        {
+          "name": "Update Group",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{jwt_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Updated Group Name\",\n  \"description\": \"Updated description\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/groups/1",
+              "host": ["{{base_url}}"],
+              "path": ["api", "groups", "1"]
+            },
+            "description": "Update an existing group"
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Group",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{jwt_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/groups/1",
+              "host": ["{{base_url}}"],
+              "path": ["api", "groups", "1"]
+            },
+            "description": "Delete a group (this will also remove all contact associations)"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Contacts",
+      "item": [
+        {
+          "name": "Create Contact",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{jwt_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"firstName\": \"John\",\n  \"lastName\": \"Doe\",\n  \"email\": \"john.doe@example.com\",\n  \"phone\": \"+1234567890\",\n  \"company\": \"Acme Corporation\",\n  \"jobTitle\": \"Software Engineer\",\n  \"notes\": \"Met at tech conference 2025\",\n  \"isFavorite\": false\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/contacts",
+              "host": ["{{base_url}}"],
+              "path": ["api", "contacts"]
+            },
+            "description": "Create a new contact for the authenticated user"
+          },
+          "response": []
+        },
+        {
+          "name": "Get All Contacts",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{jwt_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/contacts?page=1&limit=10",
+              "host": ["{{base_url}}"],
+              "path": ["api", "contacts"],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1",
+                  "description": "Page number"
+                },
+                {
+                  "key": "limit",
+                  "value": "10",
+                  "description": "Items per page"
+                },
+                {
+                  "key": "search",
+                  "value": "john",
+                  "description": "Search term",
+                  "disabled": true
+                },
+                {
+                  "key": "favorite",
+                  "value": "true",
+                  "description": "Filter favorites only",
+                  "disabled": true
+                },
+                {
+                  "key": "groupId",
+                  "value": "1",
+                  "description": "Filter by group ID",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Get all contacts for the authenticated user with optional filters"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Contacts by Search",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{jwt_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/contacts?search=john&page=1&limit=10",
+              "host": ["{{base_url}}"],
+              "path": ["api", "contacts"],
+              "query": [
+                {
+                  "key": "search",
+                  "value": "john",
+                  "description": "Search in firstName, lastName, email, phone"
+                },
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "10"
+                }
+              ]
+            },
+            "description": "Search contacts by name, email, or phone"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Favorite Contacts",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{jwt_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/contacts?favorite=true",
+              "host": ["{{base_url}}"],
+              "path": ["api", "contacts"],
+              "query": [
+                {
+                  "key": "favorite",
+                  "value": "true",
+                  "description": "Filter favorite contacts only"
+                }
+              ]
+            },
+            "description": "Get only favorite contacts"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Contacts by Group",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{jwt_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/contacts?groupId=1",
+              "host": ["{{base_url}}"],
+              "path": ["api", "contacts"],
+              "query": [
+                {
+                  "key": "groupId",
+                  "value": "1",
+                  "description": "Filter contacts by group ID"
+                }
+              ]
+            },
+            "description": "Get all contacts in a specific group"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Contact by ID",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{jwt_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/contacts/1",
+              "host": ["{{base_url}}"],
+              "path": ["api", "contacts", "1"]
+            },
+            "description": "Get a specific contact with all its groups"
+          },
+          "response": []
+        },
+        {
+          "name": "Update Contact",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{jwt_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"firstName\": \"John\",\n  \"lastName\": \"Smith\",\n  \"email\": \"john.smith@example.com\",\n  \"phone\": \"+1234567890\",\n  \"company\": \"Tech Corp\",\n  \"jobTitle\": \"Senior Developer\",\n  \"notes\": \"Updated contact information\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/contacts/1",
+              "host": ["{{base_url}}"],
+              "path": ["api", "contacts", "1"]
+            },
+            "description": "Update an existing contact"
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Contact",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{jwt_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/contacts/1",
+              "host": ["{{base_url}}"],
+              "path": ["api", "contacts", "1"]
+            },
+            "description": "Delete a contact (this will also remove all group associations)"
+          },
+          "response": []
+        },
+        {
+          "name": "Toggle Favorite",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{jwt_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PATCH",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/contacts/1/favorite",
+              "host": ["{{base_url}}"],
+              "path": ["api", "contacts", "1", "favorite"]
+            },
+            "description": "Toggle the favorite status of a contact"
+          },
+          "response": []
+        },
+        {
+          "name": "Assign Contacts to Group",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{jwt_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"contactIds\": [1, 2, 3],\n  \"groupId\": 1\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/contacts/assign-to-group",
+              "host": ["{{base_url}}"],
+              "path": ["api", "contacts", "assign-to-group"]
+            },
+            "description": "Assign multiple contacts to a group"
+          },
+          "response": []
+        },
+        {
+          "name": "Remove Contacts from Group",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{jwt_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"contactIds\": [1, 2],\n  \"groupId\": 1\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/contacts/remove-from-group",
+              "host": ["{{base_url}}"],
+              "path": ["api", "contacts", "remove-from-group"]
+            },
+            "description": "Remove multiple contacts from a group"
+          },
+          "response": []
+        }
+      ]
+    }
+  ]
+}

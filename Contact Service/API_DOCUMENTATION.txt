@@ -1,0 +1,363 @@
+===============================================
+CONTACT SERVICE API - QUICK REFERENCE GUIDE
+===============================================
+
+Base URL: http://localhost:3001
+Authorization: Bearer <your_jwt_token>
+
+JWT Token Format Expected:
+{
+  "id": 6,
+  "email": "test@gmail.com",
+  "name": "Ayush"
+}
+
+===============================================
+HEALTH CHECK
+===============================================
+
+GET /health
+
+Example:
+curl http://localhost:3001/health
+
+
+===============================================
+GROUPS API
+===============================================
+
+-----------------------------------------------
+1. CREATE GROUP
+-----------------------------------------------
+POST /api/groups
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "name": "Work Contacts",
+  "description": "My work colleagues and professional network"
+}
+
+Example:
+curl -X POST http://localhost:3001/api/groups \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"Work Contacts","description":"My work colleagues"}'
+
+
+-----------------------------------------------
+2. GET ALL GROUPS BY USER ID
+-----------------------------------------------
+POST /api/groups/list
+Authorization: Bearer <token>
+
+Optional Query Parameters:
+?includeContacts=true
+
+Example:
+curl -X POST http://localhost:3001/api/groups/list \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN"
+
+Example with contacts:
+curl -X POST "http://localhost:3001/api/groups/list?includeContacts=true" \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN"
+
+
+-----------------------------------------------
+3. GET SINGLE GROUP BY ID
+-----------------------------------------------
+POST /api/groups/detail/:id
+Authorization: Bearer <token>
+
+Example:
+curl -X POST http://localhost:3001/api/groups/detail/1 \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN"
+
+
+-----------------------------------------------
+4. UPDATE GROUP
+-----------------------------------------------
+POST /api/groups/update/:id
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "name": "Updated Group Name",
+  "description": "Updated description"
+}
+
+Example:
+curl -X POST http://localhost:3001/api/groups/update/1 \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"Updated Name","description":"Updated description"}'
+
+
+-----------------------------------------------
+5. DELETE GROUP
+-----------------------------------------------
+POST /api/groups/delete/:id
+Authorization: Bearer <token>
+
+Example:
+curl -X POST http://localhost:3001/api/groups/delete/1 \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN"
+
+
+===============================================
+CONTACTS API
+===============================================
+
+-----------------------------------------------
+1. CREATE CONTACT
+-----------------------------------------------
+POST /api/contacts
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "firstName": "John",
+  "lastName": "Doe",
+  "email": "john.doe@example.com",
+  "phone": "1234567890",
+  "countryCode": "+1",
+  "company": "Acme Corporation",
+  "jobTitle": "Software Engineer",
+  "notes": "Met at tech conference 2025",
+  "isFavorite": false
+}
+
+Example:
+curl -X POST http://localhost:3001/api/contacts \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"firstName":"John","lastName":"Doe","email":"john.doe@example.com","phone":"1234567890","countryCode":"+1","company":"Acme Corp","jobTitle":"Software Engineer"}'
+
+
+-----------------------------------------------
+2. GET ALL CONTACTS BY USER ID
+-----------------------------------------------
+POST /api/contacts/list
+Authorization: Bearer <token>
+
+Optional Query Parameters:
+?page=1              (default: 1)
+?limit=10            (default: 10)
+?search=john         (search in firstName, lastName, email, phone)
+?favorite=true       (filter favorites only)
+?groupId=1           (filter by group ID)
+
+Example:
+curl -X POST http://localhost:3001/api/contacts/list \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN"
+
+Example with pagination:
+curl -X POST "http://localhost:3001/api/contacts/list?page=1&limit=10" \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN"
+
+Example with search:
+curl -X POST "http://localhost:3001/api/contacts/list?search=john" \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN"
+
+Example with favorites:
+curl -X POST "http://localhost:3001/api/contacts/list?favorite=true" \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN"
+
+Example with group filter:
+curl -X POST "http://localhost:3001/api/contacts/list?groupId=1" \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN"
+
+
+-----------------------------------------------
+3. GET SINGLE CONTACT BY ID
+-----------------------------------------------
+POST /api/contacts/detail/:id
+Authorization: Bearer <token>
+
+Example:
+curl -X POST http://localhost:3001/api/contacts/detail/1 \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN"
+
+
+-----------------------------------------------
+4. UPDATE CONTACT
+-----------------------------------------------
+POST /api/contacts/update/:id
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "firstName": "John",
+  "lastName": "Smith",
+  "email": "john.smith@example.com",
+  "phone": "1234567890",
+  "countryCode": "+1",
+  "company": "Tech Corp",
+  "jobTitle": "Senior Developer",
+  "notes": "Updated contact information"
+}
+
+Example:
+curl -X POST http://localhost:3001/api/contacts/update/1 \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"firstName":"John","lastName":"Smith","email":"john.smith@example.com","phone":"1234567890","countryCode":"+1"}'
+
+
+-----------------------------------------------
+5. DELETE CONTACT
+-----------------------------------------------
+POST /api/contacts/delete/:id
+Authorization: Bearer <token>
+
+Example:
+curl -X POST http://localhost:3001/api/contacts/delete/1 \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN"
+
+
+-----------------------------------------------
+6. TOGGLE FAVORITE STATUS
+-----------------------------------------------
+POST /api/contacts/favorite/:id
+Authorization: Bearer <token>
+
+Example:
+curl -X POST http://localhost:3001/api/contacts/favorite/1 \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN"
+
+
+-----------------------------------------------
+7. ASSIGN CONTACTS TO GROUP
+-----------------------------------------------
+POST /api/contacts/assign-to-group
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "contactIds": [1, 2, 3],
+  "groupId": 1
+}
+
+Example:
+curl -X POST http://localhost:3001/api/contacts/assign-to-group \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"contactIds":[1,2,3],"groupId":1}'
+
+
+-----------------------------------------------
+8. REMOVE CONTACTS FROM GROUP
+-----------------------------------------------
+POST /api/contacts/remove-from-group
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "contactIds": [1, 2],
+  "groupId": 1
+}
+
+Example:
+curl -X POST http://localhost:3001/api/contacts/remove-from-group \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"contactIds":[1,2],"groupId":1}'
+
+
+===============================================
+RESPONSE FORMATS
+===============================================
+
+SUCCESS RESPONSE:
+{
+  "success": true,
+  "message": "Operation successful",
+  "data": { ... }
+}
+
+ERROR RESPONSE:
+{
+  "success": false,
+  "message": "Error message",
+  "errors": [ ... ]
+}
+
+LIST RESPONSE (with pagination):
+{
+  "success": true,
+  "count": 10,
+  "total": 45,
+  "totalPages": 5,
+  "currentPage": 1,
+  "data": [ ... ]
+}
+
+
+===============================================
+TESTING WORKFLOW
+===============================================
+
+1. Start the server:
+   npm run dev
+
+2. Create a group:
+   POST /api/groups
+   {"name": "Friends", "description": "Personal friends"}
+
+3. Create contacts:
+   POST /api/contacts
+   {"firstName": "John", "lastName": "Doe", "email": "john@example.com", "phone": "1234567890", "countryCode": "+1"}
+
+4. Assign contacts to group:
+   POST /api/contacts/assign-to-group
+   {"contactIds": [1, 2], "groupId": 1}
+
+5. List contacts in group:
+   POST /api/contacts/list?groupId=1
+
+6. Search contacts:
+   POST /api/contacts/list?search=john
+
+
+===============================================
+NOTES
+===============================================
+
+- All endpoints (except /health) require JWT authentication
+- Replace YOUR_JWT_TOKEN with your actual JWT token
+- User can only access their own contacts and groups
+- Pagination defaults: page=1, limit=10
+- Search is case-insensitive
+- Deleting a group removes all contact associations
+- Deleting a contact removes all group associations
+- Contact and group IDs are auto-incremented integers
+
+
+===============================================
+DATABASE SETUP
+===============================================
+
+Before running the API, set up the database:
+
+1. Create database:
+   mysql -u root -p < database/schema.sql
+
+2. Configure .env file:
+   cp .env.example .env
+   
+   Edit .env with your settings:
+   DB_HOST=localhost
+   DB_PORT=3306
+   DB_NAME=contact_service
+   DB_USER=root
+   DB_PASSWORD=your_password
+   JWT_SECRET=your_secret_key
+
+3. Install dependencies:
+   npm install
+
+4. Start server:
+   npm run dev
+
+
+===============================================
