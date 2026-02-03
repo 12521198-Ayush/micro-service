@@ -1,0 +1,4485 @@
+src/database/schema.sql
+
+
+-- JWT Auth User Service - Complete Database Schema
+-- This file contains all tables and migrations in one place
+
+-- ============================================
+-- 1. CREATE DATABASE
+-- ============================================
+CREATE DATABASE IF NOT EXISTS user_service;
+USE user_service;
+
+-- ============================================
+-- 2. USERS TABLE
+-- ============================================
+CREATE TABLE IF NOT EXISTS users (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  email VARCHAR(255) UNIQUE NOT NULL,
+  password VARCHAR(255) NOT NULL,
+  name VARCHAR(255) NOT NULL,
+  meta_business_account_id VARCHAR(255),
+  user_balance DECIMAL(10, 2) DEFAULT 0.00,
+  marketing_message_price DECIMAL(10, 2) DEFAULT 0.10,
+  utility_message_price DECIMAL(10, 2) DEFAULT 0.05,
+  auth_message_price DECIMAL(10, 2) DEFAULT 0.05,
+  reset_token VARCHAR(255),
+  reset_token_expires DATETIME,
+  reset_attempts INT DEFAULT 0,
+  reset_attempts_reset_at DATETIME,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+
+-- ============================================
+-- 3. ORGANIZATION DETAILS TABLE
+-- ============================================
+CREATE TABLE IF NOT EXISTS organization_details (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  user_id INT NOT NULL UNIQUE,
+  organization_name VARCHAR(255),
+  physical_address VARCHAR(500),
+  city VARCHAR(100),
+  state VARCHAR(100),
+  zip_code VARCHAR(20),
+  country VARCHAR(100),
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  INDEX idx_user_id (user_id)
+);
+
+-- ============================================
+-- 4. WALLET TRANSACTIONS TABLE
+-- ============================================
+CREATE TABLE IF NOT EXISTS wallet_transactions (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  user_id INT NOT NULL,
+  transaction_type ENUM('credit', 'debit') NOT NULL,
+  amount DECIMAL(10, 2) NOT NULL,
+  balance_before DECIMAL(10, 2) NOT NULL,
+  balance_after DECIMAL(10, 2) NOT NULL,
+  description VARCHAR(500),
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  INDEX idx_user_id_transactions (user_id),
+  INDEX idx_transaction_type (transaction_type),
+  INDEX idx_created_at (created_at)
+);
+
+-- ============================================
+-- 5. INDEXES
+-- ============================================
+CREATE INDEX idx_email ON users(email);
+CREATE INDEX idx_reset_token ON users(reset_token);
+CREATE INDEX idx_reset_token_org ON organization_details(user_id);
+
+-- ============================================
+-- TABLE DESCRIPTIONS
+-- ============================================
+
+-- USERS TABLE:
+-- - id: Unique user identifier
+-- - email: User's email address (unique)
+-- - password: Hashed password using bcrypt
+-- - name: User's full name
+-- - reset_token: Token for password reset (nullable)
+-- - reset_token_expires: Expiration time for reset token
+-- - reset_attempts: Counter for password reset attempts in 24 hours
+-- - reset_attempts_reset_at: Timestamp when reset attempt counter started
+-- - created_at: Account creation timestamp
+-- - updated_at: Last update timestamp
+
+-- ORGANIZATION_DETAILS TABLE:
+-- - id: Unique organization details identifier
+-- - user_id: Foreign key referencing users table (one-to-one relationship)
+-- - organization_name: Name of the business/organization
+-- - physical_address: Street address of the organization
+-- - city: City where organization is located
+-- - state: State/Province of organization
+-- - zip_code: Postal/Zip code
+-- - country: Country of organization
+-- - created_at: Organization details creation timestamp
+-- - updated_at: Last update timestamp
+
+src/config/database.js
+
+import mysql from 'mysql2/promise';
+import dotenv from 'dotenv';
+
+dotenv.config();
+
+const pool = mysql.createPool({
+  host: process.env.DB_HOST || 'localhost',
+  user: process.env.DB_USER || 'root',
+  password: process.env.DB_PASSWORD || '',
+  database: process.env.DB_NAME || 'user_service',
+  port: process.env.DB_PORT || 3307,
+  waitForConnections: true,
+  connectionLimit: 10,
+  queueLimit: 0,
+});
+
+// Test database connection
+export const connectDB = async () => {
+  try {
+    const connection = await pool.getConnection();
+    console.log('Database connected successfully');
+    connection.release();
+  } catch (error) {
+    console.error('Database connection failed:', error.message);
+    process.exit(1);
+  }
+};
+
+export default pool;
+
+
+
+src/config/redis.js
+
+
+import { createClient } from 'redis';
+import dotenv from 'dotenv';
+
+dotenv.config();
+
+const redisClient = createClient({
+  url: process.env.REDIS_URL || 'redis://localhost:6379',
+  password: process.env.REDIS_PASSWORD || undefined,
+});
+
+redisClient.on('error', (err) => console.error('Redis Client Error', err));
+redisClient.on('connect', () => console.log('Redis Client Connected'));
+redisClient.on('ready', () => console.log('Redis Client Ready'));
+
+// Connect to Redis
+export const connectRedis = async () => {
+  try {
+    await redisClient.connect();
+  } catch (err) {
+    console.warn('Redis connection failed. Caching will be disabled:', err.message);
+  }
+};
+
+// Cache operations
+export const cache = {
+  // Get value from cache
+  async get(key) {
+    try {
+      if (!redisClient.isOpen) return null;
+      const value = await redisClient.get(key);
+      return value ? JSON.parse(value) : null;
+    } catch (error) {
+      console.error(`Cache get error for key ${key}:`, error);
+      return null;
+    }
+  },
+
+  // Set value in cache with TTL
+  async set(key, value, ttl = 3600) {
+    try {
+      if (!redisClient.isOpen) return false;
+      await redisClient.setEx(key, ttl, JSON.stringify(value));
+      return true;
+    } catch (error) {
+      console.error(`Cache set error for key ${key}:`, error);
+      return false;
+    }
+  },
+
+  // Delete key from cache
+  async delete(key) {
+    try {
+      if (!redisClient.isOpen) return false;
+      await redisClient.del(key);
+      return true;
+    } catch (error) {
+      console.error(`Cache delete error for key ${key}:`, error);
+      return false;
+    }
+  },
+
+  // Clear all cache
+  async flush() {
+    try {
+      if (!redisClient.isOpen) return false;
+      await redisClient.flushDb();
+      return true;
+    } catch (error) {
+      console.error('Cache flush error:', error);
+      return false;
+    }
+  },
+
+  // Check if key exists
+  async exists(key) {
+    try {
+      if (!redisClient.isOpen) return false;
+      const exists = await redisClient.exists(key);
+      return exists === 1;
+    } catch (error) {
+      console.error(`Cache exists error for key ${key}:`, error);
+      return false;
+    }
+  },
+
+  // Get multiple keys
+  async mget(keys) {
+    try {
+      if (!redisClient.isOpen) return keys.map(() => null);
+      const values = await redisClient.mGet(keys);
+      return values.map((val) => (val ? JSON.parse(val) : null));
+    } catch (error) {
+      console.error(`Cache mget error:`, error);
+      return keys.map(() => null);
+    }
+  },
+
+  // Set multiple keys
+  async mset(pairs, ttl = 3600) {
+    try {
+      if (!redisClient.isOpen) return false;
+      const commands = [];
+      for (const [key, value] of Object.entries(pairs)) {
+        commands.push(redisClient.setEx(key, ttl, JSON.stringify(value)));
+      }
+      await Promise.all(commands);
+      return true;
+    } catch (error) {
+      console.error(`Cache mset error:`, error);
+      return false;
+    }
+  },
+
+  // Delete keys by pattern
+  async deletePattern(pattern) {
+    try {
+      if (!redisClient.isOpen) return false;
+      const keys = await redisClient.keys(pattern);
+      if (keys.length > 0) {
+        await redisClient.del(keys);
+      }
+      return true;
+    } catch (error) {
+      console.error(`Cache delete pattern error for ${pattern}:`, error);
+      return false;
+    }
+  },
+};
+
+export default { redisClient, connectRedis, cache };
+
+src/middleware/auth.js
+
+import jwt from 'jsonwebtoken';
+
+const verifyToken = (req, res, next) => {
+  console.log('\n========== JWT VERIFICATION START ==========');
+  console.log(`[${new Date().toISOString()}] Verifying token for request:`, {
+    method: req.method,
+    path: req.path,
+    url: req.originalUrl,
+  });
+
+  const authHeader = req.headers.authorization;
+  console.log('Authorization header:', authHeader ? 'Present' : 'Missing');
+
+  const token = authHeader?.split(' ')[1];
+
+  if (!token) {
+    console.log('❌ TOKEN VERIFICATION FAILED: No token provided');
+    console.log('========== JWT VERIFICATION END ==========\n');
+    return res.status(401).json({ error: 'No token provided' });
+  }
+
+  console.log('✓ Token extracted from header');
+  console.log('Token (first 20 chars):', token.substring(0, 20) + '...');
+
+  try {
+    const jwtSecret = process.env.JWT_SECRET || 'your_jwt_secret_key';
+    console.log('Using JWT Secret:', jwtSecret === 'your_jwt_secret_key' ? '(default)' : '(from env)');
+
+    const decoded = jwt.verify(token, jwtSecret);
+
+    console.log('✓ JWT VERIFICATION SUCCESSFUL');
+    console.log('Decoded token payload:', {
+      id: decoded.id,
+      email: decoded.email,
+      metaBusinessAccountId: decoded.metaBusinessAccountId,
+      iat: new Date(decoded.iat * 1000).toISOString(),
+      exp: new Date(decoded.exp * 1000).toISOString(),
+    });
+
+    req.user = decoded;
+    console.log('✓ User object attached to request');
+    console.log('========== JWT VERIFICATION END ==========\n');
+    next();
+  } catch (error) {
+    console.log('❌ TOKEN VERIFICATION FAILED');
+    console.log('Error type:', error.name);
+    console.log('Error message:', error.message);
+    if (error.name === 'TokenExpiredError') {
+      console.log('Token expired at:', new Date(error.expiredAt).toISOString());
+    }
+    console.log('========== JWT VERIFICATION END ==========\n');
+    return res.status(403).json({ error: 'Invalid or expired token' });
+  }
+};
+
+export default verifyToken;
+
+
+
+src/controllers/authController.js
+
+import jwt from 'jsonwebtoken';
+import { hash, compare } from 'bcrypt';
+import crypto from 'crypto';
+import User from '../models/User.js';
+import OrganizationDetails from '../models/OrganizationDetails.js';
+
+const JWT_SECRET = process.env.JWT_SECRET || 'your_jwt_secret_key';
+const JWT_EXPIRY = process.env.JWT_EXPIRY || '24h';
+
+export const register = async (req, res) => {
+  console.log('\n========== REGISTRATION START ==========');
+  console.log(`[${new Date().toISOString()}] Registration request received`);
+  console.log('Request body:', { email: req.body.email, name: req.body.name, password: '***' });
+
+  try {
+    const { email, password, name } = req.body;
+
+    // Validate input
+    if (!email || !password || !name) {
+      console.log('❌ VALIDATION FAILED: Missing required fields');
+      console.log('Missing fields:', { email: !email, password: !password, name: !name });
+      console.log('========== REGISTRATION END ==========\n');
+      return res.status(400).json({ error: 'Email, password, and name are required' });
+    }
+
+    console.log('✓ Input validation passed');
+
+    // Check if user already exists
+    console.log('Checking if user already exists...');
+    const existingUser = await User.findByEmail(email);
+    if (existingUser) {
+      console.log('❌ USER ALREADY EXISTS');
+      console.log('Existing user ID:', existingUser.id);
+      console.log('========== REGISTRATION END ==========\n');
+      return res.status(409).json({ error: 'User already exists' });
+    }
+
+    console.log('✓ User does not exist, proceeding with registration');
+
+    // Hash password
+    console.log('Hashing password...');
+    const passwordHash = await hash(password, 10);
+    console.log('✓ Password hashed successfully');
+
+    // Create user
+    console.log('Creating user in database...');
+    const userId = await User.create(email, passwordHash, name);
+    console.log('✓ User created successfully');
+    console.log('New user ID:', userId);
+
+    // Generate JWT token
+    const JWT_SECRET = process.env.JWT_SECRET || 'your_jwt_secret_key';
+    const JWT_EXPIRY = process.env.JWT_EXPIRY || '24h';
+    console.log('Generating JWT token...');
+    console.log('JWT Secret:', JWT_SECRET === 'your_jwt_secret_key' ? '(default)' : '(from env)');
+    console.log('JWT Expiry:', JWT_EXPIRY);
+
+    const token = jwt.sign({ id: userId, email, metaBusinessAccountId: null }, JWT_SECRET, { expiresIn: JWT_EXPIRY });
+    console.log('✓ JWT token generated successfully');
+    console.log('Token (first 20 chars):', token.substring(0, 20) + '...');
+
+    console.log('✓ REGISTRATION SUCCESSFUL');
+    console.log('Response:', { userId, email, name });
+    console.log('========== REGISTRATION END ==========\n');
+
+    res.status(201).json({
+      message: 'User registered successfully',
+      token,
+      user: { id: userId, email, name },
+    });
+  } catch (error) {
+    console.error('❌ REGISTRATION ERROR');
+    console.error('Error type:', error.constructor.name);
+    console.error('Error message:', error.message);
+    console.error('Stack:', error.stack);
+    console.log('========== REGISTRATION END ==========\n');
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+export const login = async (req, res) => {
+  console.log('\n========== LOGIN START ==========');
+  console.log(`[${new Date().toISOString()}] Login request received`);
+  console.log('Request body:', { email: req.body.email, password: '***' });
+
+  try {
+    const { email, password } = req.body;
+
+    // Validate input
+    if (!email || !password) {
+      console.log('❌ VALIDATION FAILED: Missing email or password');
+      console.log('========== LOGIN END ==========\n');
+      return res.status(400).json({ error: 'Email and password are required' });
+    }
+
+    console.log('✓ Input validation passed');
+
+    // Find user
+    console.log('Looking up user by email...');
+    const user = await User.findByEmail(email);
+    if (!user) {
+      console.log('❌ LOGIN FAILED: User not found');
+      console.log('========== LOGIN END ==========\n');
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+
+    console.log('✓ User found');
+    console.log('User ID:', user.id);
+    console.log('User email:', user.email);
+    console.log('User name:', user.name);
+
+    // Verify password
+    console.log('Verifying password...');
+    const isPasswordValid = await compare(password, user.password);
+    if (!isPasswordValid) {
+      console.log('❌ LOGIN FAILED: Password verification failed');
+      console.log('========== LOGIN END ==========\n');
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+
+    console.log('✓ Password verification successful');
+
+    // Generate JWT token
+    const JWT_SECRET = process.env.JWT_SECRET || 'your_jwt_secret_key';
+    const JWT_EXPIRY = process.env.JWT_EXPIRY || '24h';
+    console.log('Generating JWT token...');
+    console.log('JWT Secret:', JWT_SECRET === 'your_jwt_secret_key' ? '(default)' : '(from env)');
+    console.log('JWT Expiry:', JWT_EXPIRY);
+
+    const token = jwt.sign({ id: user.id, email: user.email, metaBusinessAccountId: user.meta_business_account_id }, JWT_SECRET, {
+      expiresIn: JWT_EXPIRY,
+    });
+
+    console.log('✓ JWT token generated successfully');
+    console.log('Token (first 20 chars):', token.substring(0, 20) + '...');
+    console.log('✓ LOGIN SUCCESSFUL');
+    console.log('Response:', { id: user.id, email: user.email, name: user.name });
+    console.log('========== LOGIN END ==========\n');
+
+    res.status(200).json({
+      message: 'Login successful',
+      token,
+      user: { id: user.id, email: user.email, name: user.name },
+    });
+  } catch (error) {
+    console.error('❌ LOGIN ERROR');
+    console.error('Error type:', error.constructor.name);
+    console.error('Error message:', error.message);
+    console.error('Stack:', error.stack);
+    console.log('========== LOGIN END ==========\n');
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+export const getProfile = async (req, res) => {
+  console.log('\n========== GET PROFILE START ==========');
+  console.log(`[${new Date().toISOString()}] Get profile request`);
+  console.log('Authenticated user:', { id: req.user.id, email: req.user.email });
+
+  try {
+    console.log('Fetching user profile from database...');
+    const user = await User.findById(req.user.id);
+
+    if (!user) {
+      console.log('❌ PROFILE FETCH FAILED: User not found');
+      console.log('========== GET PROFILE END ==========\n');
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    console.log('✓ User profile fetched successfully');
+
+    // Fetch organization details
+    console.log('Fetching organization details...');
+    const organizationDetails = await OrganizationDetails.findByUserId(req.user.id);
+    console.log('Organization details:', organizationDetails ? 'Found' : 'Not found');
+
+    console.log('User data:', { id: user.id, email: user.email, name: user.name });
+    console.log('========== GET PROFILE END ==========\n');
+
+    res.status(200).json({
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        metaBusinessAccountId: user.meta_business_account_id || null
+      },
+      wallet: {
+        balance: parseFloat(user.user_balance || 0),
+        pricing: {
+          marketingMessage: parseFloat(user.marketing_message_price || 0),
+          utilityMessage: parseFloat(user.utility_message_price || 0),
+          authMessage: parseFloat(user.auth_message_price || 0)
+        }
+      },
+      organization: organizationDetails ? {
+        id: organizationDetails.id,
+        organizationName: organizationDetails.organization_name,
+        physicalAddress: organizationDetails.physical_address,
+        city: organizationDetails.city,
+        state: organizationDetails.state,
+        zipCode: organizationDetails.zip_code,
+        country: organizationDetails.country,
+        createdAt: organizationDetails.created_at,
+        updatedAt: organizationDetails.updated_at
+      } : null
+    });
+  } catch (error) {
+    console.error('❌ GET PROFILE ERROR');
+    console.error('Error type:', error.constructor.name);
+    console.error('Error message:', error.message);
+    console.log('========== GET PROFILE END ==========\n');
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+export const changePassword = async (req, res) => {
+  console.log('\n========== CHANGE PASSWORD START ==========');
+  console.log(`[${new Date().toISOString()}] Change password request`);
+  console.log('Authenticated user:', { id: req.user.id, email: req.user.email });
+  console.log('Request body:', { currentPassword: '***', newPassword: '***' });
+
+  try {
+    const { currentPassword, newPassword } = req.body;
+
+    // Validate input
+    if (!currentPassword || !newPassword) {
+      console.log('❌ VALIDATION FAILED: Missing required fields');
+      console.log('========== CHANGE PASSWORD END ==========\n');
+      return res.status(400).json({ error: 'Current password and new password are required' });
+    }
+
+    console.log('✓ Input validation passed');
+
+    // Get user with password hash
+    console.log('Fetching user with password hash...');
+    const user = await User.findByEmail(req.user.email);
+    if (!user) {
+      console.log('❌ CHANGE PASSWORD FAILED: User not found');
+      console.log('========== CHANGE PASSWORD END ==========\n');
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    console.log('✓ User found');
+
+    // Verify current password
+    console.log('Verifying current password...');
+    const isPasswordValid = await compare(currentPassword, user.password);
+    if (!isPasswordValid) {
+      console.log('❌ CHANGE PASSWORD FAILED: Current password is incorrect');
+      console.log('========== CHANGE PASSWORD END ==========\n');
+      return res.status(401).json({ error: 'Current password is incorrect' });
+    }
+
+    console.log('✓ Current password verification successful');
+
+    // Hash new password
+    console.log('Hashing new password...');
+    const newPasswordHash = await hash(newPassword, 10);
+    console.log('✓ New password hashed');
+
+    // Update password
+    console.log('Updating password in database...');
+    const updated = await User.updatePassword(req.user.id, newPasswordHash);
+    if (!updated) {
+      console.log('❌ CHANGE PASSWORD FAILED: Database update failed');
+      console.log('========== CHANGE PASSWORD END ==========\n');
+      return res.status(500).json({ error: 'Failed to update password' });
+    }
+
+    console.log('✓ PASSWORD CHANGED SUCCESSFULLY');
+    console.log('========== CHANGE PASSWORD END ==========\n');
+
+    res.status(200).json({ message: 'Password changed successfully' });
+  } catch (error) {
+    console.error('❌ CHANGE PASSWORD ERROR');
+    console.error('Error type:', error.constructor.name);
+    console.error('Error message:', error.message);
+    console.log('========== CHANGE PASSWORD END ==========\n');
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+export const forgotPassword = async (req, res) => {
+  console.log('\n========== FORGOT PASSWORD START ==========');
+  console.log(`[${new Date().toISOString()}] Forgot password request`);
+  console.log('Request body:', { email: req.body.email });
+
+  try {
+    const { email } = req.body;
+    const MAX_RESET_ATTEMPTS = process.env.MAX_RESET_ATTEMPTS || 3;
+    const RESET_ATTEMPT_WINDOW = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
+
+    // Validate input
+    if (!email) {
+      console.log('❌ VALIDATION FAILED: Email is required');
+      console.log('========== FORGOT PASSWORD END ==========\n');
+      return res.status(400).json({ error: 'Email is required' });
+    }
+
+    console.log('✓ Input validation passed');
+    console.log('Rate limit config:', { MAX_RESET_ATTEMPTS, RESET_ATTEMPT_WINDOW_HOURS: 24 });
+
+    // Find user
+    console.log('Looking up user by email...');
+    const user = await User.findByEmail(email);
+    if (!user) {
+      // Don't reveal if user exists or not (security best practice)
+      console.log('ℹ User not found (security: hiding this fact)');
+      console.log('========== FORGOT PASSWORD END ==========\n');
+      return res.status(200).json({ message: 'If email exists, reset link will be sent' });
+    }
+
+    console.log('✓ User found');
+    console.log('User ID:', user.id);
+
+    // Check reset attempts
+    console.log('Checking reset attempts...');
+    const attempts = await User.getResetAttempts(email);
+    
+    if (attempts) {
+      const lastAttemptTime = new Date(attempts.reset_attempts_reset_at);
+      const now = new Date();
+      const timeSinceLastReset = now - lastAttemptTime;
+
+      console.log('Previous reset attempts:', {
+        count: attempts.reset_attempts,
+        lastAttemptTime: lastAttemptTime.toISOString(),
+        timeSinceLastReset_minutes: Math.round(timeSinceLastReset / 60000),
+      });
+
+      // If 24 hours have passed, reset the counter
+      if (timeSinceLastReset > RESET_ATTEMPT_WINDOW) {
+        console.log('✓ 24 hours have passed, resetting attempt counter');
+        await User.resetAttemptCounter(email);
+      } else if (attempts.reset_attempts >= MAX_RESET_ATTEMPTS) {
+        // If still within 24 hours and max attempts reached, reject
+        const hoursRemaining = Math.ceil((RESET_ATTEMPT_WINDOW - timeSinceLastReset) / (60 * 60 * 1000));
+        console.log(`❌ RATE LIMIT EXCEEDED: Max attempts (${MAX_RESET_ATTEMPTS}) reached`);
+        console.log('Hours remaining:', hoursRemaining);
+        console.log('========== FORGOT PASSWORD END ==========\n');
+        return res.status(429).json({
+          error: `Too many password reset attempts. Please try again in ${hoursRemaining} hour(s)`,
+          retryAfter: hoursRemaining,
+        });
+      }
+    }
+
+    // Increment reset attempts
+    console.log('Incrementing reset attempts...');
+    await User.incrementResetAttempts(email);
+    console.log('✓ Reset attempts incremented');
+
+    // Generate reset token
+    console.log('Generating password reset token...');
+    const resetToken = crypto.randomBytes(32).toString('hex');
+    const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+
+    console.log('Reset token generated (first 10 chars):', resetToken.substring(0, 10) + '...');
+    console.log('Token expires at:', expiresAt.toISOString());
+
+    // Store reset token
+    console.log('Storing reset token in database...');
+    await User.createPasswordResetToken(email, resetToken, expiresAt);
+    console.log('✓ Reset token stored');
+
+    // In a real app, send email here with reset link
+    // const resetLink = `${process.env.FRONTEND_URL}/reset-password/${resetToken}`;
+    // await sendEmail(email, resetLink);
+
+    console.log('✓ FORGOT PASSWORD REQUEST PROCESSED SUCCESSFULLY');
+    console.log('Note: Email sending not implemented (remove resetToken from response in production)');
+    console.log('========== FORGOT PASSWORD END ==========\n');
+
+    res.status(200).json({
+      message: 'Password reset token generated',
+      // For testing only - remove in production
+      resetToken,
+      expiresAt,
+    });
+  } catch (error) {
+    console.error('❌ FORGOT PASSWORD ERROR');
+    console.error('Error type:', error.constructor.name);
+    console.error('Error message:', error.message);
+    console.log('========== FORGOT PASSWORD END ==========\n');
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+export const resetPassword = async (req, res) => {
+  console.log('\n========== RESET PASSWORD START ==========');
+  console.log(`[${new Date().toISOString()}] Reset password request`);
+  console.log('Request body:', { token: req.body.token ? req.body.token.substring(0, 10) + '...' : 'missing', newPassword: '***' });
+
+  try {
+    const { token, newPassword } = req.body;
+
+    // Validate input
+    if (!token || !newPassword) {
+      console.log('❌ VALIDATION FAILED: Missing token or newPassword');
+      console.log('========== RESET PASSWORD END ==========\n');
+      return res.status(400).json({ error: 'Token and new password are required' });
+    }
+
+    console.log('✓ Input validation passed');
+
+    // Find user by reset token
+    console.log('Looking up user by reset token...');
+    const user = await User.findByResetToken(token);
+    if (!user) {
+      console.log('❌ RESET PASSWORD FAILED: Invalid or expired reset token');
+      console.log('========== RESET PASSWORD END ==========\n');
+      return res.status(400).json({ error: 'Invalid or expired reset token' });
+    }
+
+    console.log('✓ Valid reset token found');
+    console.log('User ID:', user.id);
+    console.log('User email:', user.email);
+
+    // Hash new password
+    console.log('Hashing new password...');
+    const newPasswordHash = await hash(newPassword, 10);
+    console.log('✓ New password hashed');
+
+    // Update password and clear reset token
+    console.log('Updating password in database...');
+    await User.updatePassword(user.id, newPasswordHash);
+    console.log('✓ Password updated');
+
+    console.log('Clearing reset token...');
+    await User.clearResetToken(user.id);
+    console.log('✓ Reset token cleared');
+
+    console.log('✓ PASSWORD RESET SUCCESSFULLY');
+    console.log('========== RESET PASSWORD END ==========\n');
+
+    res.status(200).json({ message: 'Password reset successfully' });
+  } catch (error) {
+    console.error('❌ RESET PASSWORD ERROR');
+    console.error('Error type:', error.constructor.name);
+    console.error('Error message:', error.message);
+    console.log('========== RESET PASSWORD END ==========\n');
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+export const updateProfile = async (req, res) => {
+  console.log('\n========== UPDATE PROFILE START ==========');
+  console.log(`[${new Date().toISOString()}] Update profile request`);
+  console.log('Authenticated user:', { id: req.user.id, email: req.user.email });
+  console.log('Request body:', { name: req.body.name, email: req.body.email });
+
+  try {
+    const { name, email } = req.body;
+
+    // Validate input
+    if (!name || !email) {
+      console.log('❌ VALIDATION FAILED: Missing name or email');
+      console.log('========== UPDATE PROFILE END ==========\n');
+      return res.status(400).json({ error: 'Name and email are required' });
+    }
+
+    console.log('✓ Input validation passed');
+
+    // Check if email is already taken by another user
+    console.log('Checking if new email is unique...');
+    if (email !== req.user.email) {
+      console.log('Email change detected:', { old: req.user.email, new: email });
+      const existingUser = await User.findByEmail(email);
+      if (existingUser) {
+        console.log('❌ UPDATE PROFILE FAILED: Email already in use');
+        console.log('========== UPDATE PROFILE END ==========\n');
+        return res.status(409).json({ error: 'Email already in use' });
+      }
+      console.log('✓ New email is available');
+    } else {
+      console.log('ℹ Email unchanged');
+    }
+
+    // Update profile
+    console.log('Updating profile in database...');
+    const updated = await User.updateProfile(req.user.id, name, email);
+    if (!updated) {
+      console.log('❌ UPDATE PROFILE FAILED: Database update failed');
+      console.log('========== UPDATE PROFILE END ==========\n');
+      return res.status(500).json({ error: 'Failed to update profile' });
+    }
+
+    console.log('✓ Profile updated in database');
+
+    // Generate new token with updated email
+    const JWT_SECRET = process.env.JWT_SECRET || 'your_jwt_secret_key';
+    const JWT_EXPIRY = process.env.JWT_EXPIRY || '24h';
+    console.log('Generating new JWT token with updated email...');
+
+    const newToken = jwt.sign({ id: req.user.id, email, metaBusinessAccountId: req.user.metaBusinessAccountId }, JWT_SECRET, {
+      expiresIn: JWT_EXPIRY,
+    });
+
+    console.log('✓ New JWT token generated');
+    console.log('New token (first 20 chars):', newToken.substring(0, 20) + '...');
+    console.log('✓ PROFILE UPDATED SUCCESSFULLY');
+    console.log('Response:', { id: req.user.id, name, email });
+    console.log('========== UPDATE PROFILE END ==========\n');
+
+    res.status(200).json({
+      message: 'Profile updated successfully',
+      token: newToken,
+      user: { id: req.user.id, name, email },
+    });
+  } catch (error) {
+    console.error('❌ UPDATE PROFILE ERROR');
+    console.error('Error type:', error.constructor.name);
+    console.error('Error message:', error.message);
+    console.log('========== UPDATE PROFILE END ==========\n');
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+export const deleteAccount = async (req, res) => {
+  console.log('\n========== DELETE ACCOUNT START ==========');
+  console.log(`[${new Date().toISOString()}] Delete account request`);
+  console.log('Authenticated user:', { id: req.user.id, email: req.user.email });
+  console.log('Request body:', { password: '***' });
+
+  try {
+    const { password } = req.body;
+
+    // Validate input
+    if (!password) {
+      console.log('❌ VALIDATION FAILED: Password is required');
+      console.log('========== DELETE ACCOUNT END ==========\n');
+      return res.status(400).json({ error: 'Password is required to delete account' });
+    }
+
+    console.log('✓ Input validation passed');
+
+    // Get user with password hash
+    console.log('Fetching user with password hash...');
+    const user = await User.findByEmail(req.user.email);
+    if (!user) {
+      console.log('❌ DELETE ACCOUNT FAILED: User not found');
+      console.log('========== DELETE ACCOUNT END ==========\n');
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    console.log('✓ User found');
+    console.log('User ID:', user.id);
+
+    // Verify password
+    console.log('Verifying password for account deletion...');
+    const isPasswordValid = await compare(password, user.password);
+    if (!isPasswordValid) {
+      console.log('❌ DELETE ACCOUNT FAILED: Password verification failed');
+      console.log('========== DELETE ACCOUNT END ==========\n');
+      return res.status(401).json({ error: 'Password is incorrect' });
+    }
+
+    console.log('✓ Password verification successful');
+
+    // Delete user
+    console.log('Deleting account from database...');
+    const deleted = await User.delete(req.user.id);
+    if (!deleted) {
+      console.log('❌ DELETE ACCOUNT FAILED: Database deletion failed');
+      console.log('========== DELETE ACCOUNT END ==========\n');
+      return res.status(500).json({ error: 'Failed to delete account' });
+    }
+
+    console.log('✓ Account deleted from database');
+    console.log('✓ ACCOUNT DELETED SUCCESSFULLY');
+    console.log('========== DELETE ACCOUNT END ==========\n');
+
+    res.status(200).json({ message: 'Account deleted successfully' });
+  } catch (error) {
+    console.error('❌ DELETE ACCOUNT ERROR');
+    console.error('Error type:', error.constructor.name);
+    console.error('Error message:', error.message);
+    console.log('========== DELETE ACCOUNT END ==========\n');
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+export const updateMetaBusinessAccountId = async (req, res) => {
+  console.log('\n========== UPDATE META BUSINESS ACCOUNT ID START ==========');
+  console.log(`[${new Date().toISOString()}] Update Meta Business Account ID request`);
+  console.log('Authenticated user:', { id: req.user.id, email: req.user.email });
+
+  try {
+    const { metaBusinessAccountId } = req.body;
+
+    // Validate input
+    if (!metaBusinessAccountId) {
+      console.log('❌ VALIDATION FAILED: Meta Business Account ID is required');
+      console.log('========== UPDATE META BUSINESS ACCOUNT ID END ==========\n');
+      return res.status(400).json({ error: 'Meta Business Account ID is required' });
+    }
+
+    console.log('✓ Input validation passed');
+    console.log('Meta Business Account ID:', metaBusinessAccountId);
+
+    // Update Meta Business Account ID
+    console.log('Updating Meta Business Account ID in database...');
+    const updated = await User.updateMetaBusinessAccountId(req.user.id, metaBusinessAccountId);
+    if (!updated) {
+      console.log('❌ UPDATE FAILED: Database update failed');
+      console.log('========== UPDATE META BUSINESS ACCOUNT ID END ==========\n');
+      return res.status(500).json({ error: 'Failed to update Meta Business Account ID' });
+    }
+
+    console.log('✓ Meta Business Account ID updated in database');
+
+    // Get updated user data
+    console.log('Fetching updated user data...');
+    const user = await User.findById(req.user.id);
+    if (!user) {
+      console.log('❌ FETCH FAILED: User not found');
+      console.log('========== UPDATE META BUSINESS ACCOUNT ID END ==========\n');
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Generate new token with updated metaBusinessAccountId
+    console.log('Generating new JWT token with updated Meta Business Account ID...');
+    const newToken = jwt.sign(
+      { 
+        id: req.user.id, 
+        email: req.user.email, 
+        metaBusinessAccountId: user.meta_business_account_id 
+      }, 
+      JWT_SECRET, 
+      { expiresIn: JWT_EXPIRY }
+    );
+
+    console.log('✓ New JWT token generated');
+    console.log('New token (first 20 chars):', newToken.substring(0, 20) + '...');
+    console.log('✓ META BUSINESS ACCOUNT ID UPDATED SUCCESSFULLY');
+    console.log('========== UPDATE META BUSINESS ACCOUNT ID END ==========\n');
+
+    res.status(200).json({
+      message: 'Meta Business Account ID updated successfully',
+      token: newToken,
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        metaBusinessAccountId: user.meta_business_account_id
+      }
+    });
+  } catch (error) {
+    console.error('❌ UPDATE META BUSINESS ACCOUNT ID ERROR');
+    console.error('Error type:', error.constructor.name);
+    console.error('Error message:', error.message);
+    console.error('Stack:', error.stack);
+    console.log('========== UPDATE META BUSINESS ACCOUNT ID END ==========\n');
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+
+src/controllers/organizationController.js
+
+import OrganizationDetails from '../models/OrganizationDetails.js';
+import User from '../models/User.js';
+
+export const createOrUpdateOrganizationDetails = async (req, res) => {
+  try {
+    const {
+      organizationName,
+      physicalAddress,
+      city,
+      state,
+      zipCode,
+      country,
+    } = req.body;
+
+    // Validate input
+    if (!organizationName) {
+      return res.status(400).json({ error: 'Organization name is required' });
+    }
+
+    // Verify user exists
+    const user = await User.findById(req.user.id);
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Check if organization details already exist
+    const existingDetails = await OrganizationDetails.findByUserId(req.user.id);
+
+    let result;
+    let isCreated = false;
+
+    if (existingDetails) {
+      // Update existing organization details
+      const updated = await OrganizationDetails.update(req.user.id, {
+        organizationName,
+        physicalAddress,
+        city,
+        state,
+        zipCode,
+        country,
+      });
+
+      if (!updated) {
+        return res.status(500).json({ error: 'Failed to update organization details' });
+      }
+
+      result = {
+        id: existingDetails.id,
+        userId: req.user.id,
+        organizationName,
+        physicalAddress,
+        city,
+        state,
+        zipCode,
+        country,
+      };
+    } else {
+      // Create new organization details
+      const detailsId = await OrganizationDetails.create(req.user.id, {
+        organizationName,
+        physicalAddress,
+        city,
+        state,
+        zipCode,
+        country,
+      });
+
+      isCreated = true;
+      result = {
+        id: detailsId,
+        userId: req.user.id,
+        organizationName,
+        physicalAddress,
+        city,
+        state,
+        zipCode,
+        country,
+      };
+    }
+
+    res.status(isCreated ? 201 : 200).json({
+      message: isCreated
+        ? 'Organization details added successfully'
+        : 'Organization details updated successfully',
+      organizationDetails: result,
+    });
+  } catch (error) {
+    console.error('Create/Update organization details error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+export const getOrganizationDetails = async (req, res) => {
+  try {
+    // Verify user exists
+    const user = await User.findById(req.user.id);
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    const details = await OrganizationDetails.findByUserId(req.user.id);
+
+    if (!details) {
+      return res.status(404).json({ error: 'Organization details not found' });
+    }
+
+    res.status(200).json({
+      organizationDetails: {
+        id: details.id,
+        userId: details.user_id,
+        organizationName: details.organization_name,
+        physicalAddress: details.physical_address,
+        city: details.city,
+        state: details.state,
+        zipCode: details.zip_code,
+        country: details.country,
+        createdAt: details.created_at,
+        updatedAt: details.updated_at,
+      },
+    });
+  } catch (error) {
+    console.error('Get organization details error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+
+src/controllers/walletController.js
+
+import User from '../models/User.js';
+import WalletTransaction from '../models/WalletTransaction.js';
+
+export const addBalance = async (req, res) => {
+  console.log('\n========== ADD BALANCE START ==========');
+  console.log(`[${new Date().toISOString()}] Add balance request`);
+  console.log('Authenticated user:', { id: req.user.id, email: req.user.email });
+
+  try {
+    const { amount, description } = req.body;
+
+    // Validate input
+    if (!amount || amount <= 0) {
+      console.log('❌ VALIDATION FAILED: Invalid amount');
+      console.log('========== ADD BALANCE END ==========\n');
+      return res.status(400).json({ error: 'Amount must be greater than 0' });
+    }
+
+    console.log('✓ Input validation passed');
+    console.log('Amount to add:', amount);
+    console.log('Description:', description || 'No description provided');
+
+    // Get current balance
+    console.log('Fetching current balance...');
+    const currentBalance = await User.getBalance(req.user.id);
+    console.log('Current balance:', currentBalance);
+
+    // Calculate new balance
+    const newBalance = parseFloat(currentBalance) + parseFloat(amount);
+    console.log('New balance:', newBalance);
+
+    // Update balance
+    console.log('Updating user balance...');
+    const updated = await User.updateBalance(req.user.id, newBalance);
+    if (!updated) {
+      console.log('❌ ADD BALANCE FAILED: Database update failed');
+      console.log('========== ADD BALANCE END ==========\n');
+      return res.status(500).json({ error: 'Failed to update balance' });
+    }
+
+    console.log('✓ Balance updated successfully');
+
+    // Create transaction record
+    console.log('Creating transaction record...');
+    const transactionId = await WalletTransaction.create(
+      req.user.id,
+      'credit',
+      amount,
+      currentBalance,
+      newBalance,
+      description || 'Balance added'
+    );
+    console.log('✓ Transaction recorded with ID:', transactionId);
+
+    console.log('✓ BALANCE ADDED SUCCESSFULLY');
+    console.log('========== ADD BALANCE END ==========\n');
+
+    res.status(200).json({
+      message: 'Balance added successfully',
+      transaction: {
+        id: transactionId,
+        type: 'credit',
+        amount: parseFloat(amount),
+        balanceBefore: parseFloat(currentBalance),
+        balanceAfter: parseFloat(newBalance),
+        description: description || 'Balance added'
+      },
+      currentBalance: parseFloat(newBalance)
+    });
+  } catch (error) {
+    console.error('❌ ADD BALANCE ERROR');
+    console.error('Error type:', error.constructor.name);
+    console.error('Error message:', error.message);
+    console.error('Stack:', error.stack);
+    console.log('========== ADD BALANCE END ==========\n');
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+export const deductBalance = async (req, res) => {
+  console.log('\n========== DEDUCT BALANCE START ==========');
+  console.log(`[${new Date().toISOString()}] Deduct balance request`);
+  console.log('Authenticated user:', { id: req.user.id, email: req.user.email });
+
+  try {
+    const { amount, description } = req.body;
+
+    // Validate input
+    if (!amount || amount <= 0) {
+      console.log('❌ VALIDATION FAILED: Invalid amount');
+      console.log('========== DEDUCT BALANCE END ==========\n');
+      return res.status(400).json({ error: 'Amount must be greater than 0' });
+    }
+
+    console.log('✓ Input validation passed');
+    console.log('Amount to deduct:', amount);
+    console.log('Description:', description || 'No description provided');
+
+    // Get current balance
+    console.log('Fetching current balance...');
+    const currentBalance = await User.getBalance(req.user.id);
+    console.log('Current balance:', currentBalance);
+
+    // Check if sufficient balance
+    if (parseFloat(currentBalance) < parseFloat(amount)) {
+      console.log('❌ DEDUCT BALANCE FAILED: Insufficient balance');
+      console.log('========== DEDUCT BALANCE END ==========\n');
+      return res.status(400).json({ 
+        error: 'Insufficient balance',
+        currentBalance: parseFloat(currentBalance),
+        required: parseFloat(amount)
+      });
+    }
+
+    // Calculate new balance
+    const newBalance = parseFloat(currentBalance) - parseFloat(amount);
+    console.log('New balance:', newBalance);
+
+    // Update balance
+    console.log('Updating user balance...');
+    const updated = await User.updateBalance(req.user.id, newBalance);
+    if (!updated) {
+      console.log('❌ DEDUCT BALANCE FAILED: Database update failed');
+      console.log('========== DEDUCT BALANCE END ==========\n');
+      return res.status(500).json({ error: 'Failed to update balance' });
+    }
+
+    console.log('✓ Balance updated successfully');
+
+    // Create transaction record
+    console.log('Creating transaction record...');
+    const transactionId = await WalletTransaction.create(
+      req.user.id,
+      'debit',
+      amount,
+      currentBalance,
+      newBalance,
+      description || 'Balance deducted'
+    );
+    console.log('✓ Transaction recorded with ID:', transactionId);
+
+    console.log('✓ BALANCE DEDUCTED SUCCESSFULLY');
+    console.log('========== DEDUCT BALANCE END ==========\n');
+
+    res.status(200).json({
+      message: 'Balance deducted successfully',
+      transaction: {
+        id: transactionId,
+        type: 'debit',
+        amount: parseFloat(amount),
+        balanceBefore: parseFloat(currentBalance),
+        balanceAfter: parseFloat(newBalance),
+        description: description || 'Balance deducted'
+      },
+      currentBalance: parseFloat(newBalance)
+    });
+  } catch (error) {
+    console.error('❌ DEDUCT BALANCE ERROR');
+    console.error('Error type:', error.constructor.name);
+    console.error('Error message:', error.message);
+    console.error('Stack:', error.stack);
+    console.log('========== DEDUCT BALANCE END ==========\n');
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+export const getBalance = async (req, res) => {
+  console.log('\n========== GET BALANCE START ==========');
+  console.log(`[${new Date().toISOString()}] Get balance request`);
+  console.log('Authenticated user:', { id: req.user.id, email: req.user.email });
+
+  try {
+    console.log('Fetching user data...');
+    const user = await User.findById(req.user.id);
+    
+    if (!user) {
+      console.log('❌ GET BALANCE FAILED: User not found');
+      console.log('========== GET BALANCE END ==========\n');
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    console.log('✓ User data fetched successfully');
+    console.log('Balance:', user.user_balance);
+    console.log('========== GET BALANCE END ==========\n');
+
+    res.status(200).json({
+      balance: parseFloat(user.user_balance || 0),
+      pricing: {
+        marketingMessage: parseFloat(user.marketing_message_price || 0),
+        utilityMessage: parseFloat(user.utility_message_price || 0),
+        authMessage: parseFloat(user.auth_message_price || 0)
+      }
+    });
+  } catch (error) {
+    console.error('❌ GET BALANCE ERROR');
+    console.error('Error type:', error.constructor.name);
+    console.error('Error message:', error.message);
+    console.log('========== GET BALANCE END ==========\n');
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+export const getTransactions = async (req, res) => {
+  console.log('\n========== GET TRANSACTIONS START ==========');
+  console.log(`[${new Date().toISOString()}] Get transactions request`);
+  console.log('Authenticated user:', { id: req.user.id, email: req.user.email });
+
+  try {
+    const limit = parseInt(req.query.limit) || 50;
+    const page = parseInt(req.query.page) || 1;
+    const offset = (page - 1) * limit;
+
+    console.log('Pagination:', { limit, page, offset });
+
+    console.log('Fetching transactions...');
+    const transactions = await WalletTransaction.findByUserId(req.user.id, limit, offset);
+    const totalCount = await WalletTransaction.getTransactionCount(req.user.id);
+
+    console.log('✓ Transactions fetched successfully');
+    console.log('Total transactions:', totalCount);
+    console.log('Returned transactions:', transactions.length);
+    console.log('========== GET TRANSACTIONS END ==========\n');
+
+    res.status(200).json({
+      transactions: transactions.map(t => ({
+        id: t.id,
+        type: t.transaction_type,
+        amount: parseFloat(t.amount),
+        balanceBefore: parseFloat(t.balance_before),
+        balanceAfter: parseFloat(t.balance_after),
+        description: t.description,
+        createdAt: t.created_at
+      })),
+      pagination: {
+        currentPage: page,
+        totalPages: Math.ceil(totalCount / limit),
+        totalCount,
+        limit
+      }
+    });
+  } catch (error) {
+    console.error('❌ GET TRANSACTIONS ERROR');
+    console.error('Error type:', error.constructor.name);
+    console.error('Error message:', error.message);
+    console.log('========== GET TRANSACTIONS END ==========\n');
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+export const updateMessagePrices = async (req, res) => {
+  console.log('\n========== UPDATE MESSAGE PRICES START ==========');
+  console.log(`[${new Date().toISOString()}] Update message prices request`);
+  console.log('Authenticated user:', { id: req.user.id, email: req.user.email });
+
+  try {
+    const { marketingMessagePrice, utilityMessagePrice, authMessagePrice } = req.body;
+
+    // Validate at least one price is provided
+    if (marketingMessagePrice === undefined && 
+        utilityMessagePrice === undefined && 
+        authMessagePrice === undefined) {
+      console.log('❌ VALIDATION FAILED: No prices provided');
+      console.log('========== UPDATE MESSAGE PRICES END ==========\n');
+      return res.status(400).json({ 
+        error: 'At least one message price must be provided' 
+      });
+    }
+
+    // Validate prices are positive
+    const prices = {};
+    if (marketingMessagePrice !== undefined) {
+      if (marketingMessagePrice < 0) {
+        return res.status(400).json({ error: 'Marketing message price must be non-negative' });
+      }
+      prices.marketingMessagePrice = marketingMessagePrice;
+    }
+    if (utilityMessagePrice !== undefined) {
+      if (utilityMessagePrice < 0) {
+        return res.status(400).json({ error: 'Utility message price must be non-negative' });
+      }
+      prices.utilityMessagePrice = utilityMessagePrice;
+    }
+    if (authMessagePrice !== undefined) {
+      if (authMessagePrice < 0) {
+        return res.status(400).json({ error: 'Auth message price must be non-negative' });
+      }
+      prices.authMessagePrice = authMessagePrice;
+    }
+
+    console.log('✓ Input validation passed');
+    console.log('Prices to update:', prices);
+
+    // Update prices
+    console.log('Updating message prices...');
+    const updated = await User.updateMessagePrices(req.user.id, prices);
+    if (!updated) {
+      console.log('❌ UPDATE FAILED: Database update failed');
+      console.log('========== UPDATE MESSAGE PRICES END ==========\n');
+      return res.status(500).json({ error: 'Failed to update message prices' });
+    }
+
+    console.log('✓ Message prices updated successfully');
+
+    // Get updated user data
+    const user = await User.findById(req.user.id);
+    
+    console.log('✓ MESSAGE PRICES UPDATED SUCCESSFULLY');
+    console.log('========== UPDATE MESSAGE PRICES END ==========\n');
+
+    res.status(200).json({
+      message: 'Message prices updated successfully',
+      pricing: {
+        marketingMessage: parseFloat(user.marketing_message_price),
+        utilityMessage: parseFloat(user.utility_message_price),
+        authMessage: parseFloat(user.auth_message_price)
+      }
+    });
+  } catch (error) {
+    console.error('❌ UPDATE MESSAGE PRICES ERROR');
+    console.error('Error type:', error.constructor.name);
+    console.error('Error message:', error.message);
+    console.error('Stack:', error.stack);
+    console.log('========== UPDATE MESSAGE PRICES END ==========\n');
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+
+src/controllers/embeddedSignupRoutes.js
+
+import axios from 'axios';
+import pool from '../config/database.js';
+import { cache } from '../config/redis.js';
+
+const META_GRAPH_URL = 'https://graph.facebook.com/v24.0';
+
+// Embedded Signup Configuration
+const getEmbeddedSignupConfig = () => ({
+  appId: process.env.META_APP_ID,
+  appSecret: process.env.META_APP_SECRET,
+  configId: process.env.META_EMBEDDED_SIGNUP_CONFIG_ID,
+  redirectUri: process.env.META_REDIRECT_URI || 'https://your-domain.com/auth/facebook/callback'
+});
+
+class EmbeddedSignupController {
+  /**
+   * Initialize Embedded Signup Session
+   * Returns the configuration needed for Facebook Login SDK
+   */
+  static async initializeSignup(req, res) {
+    try {
+      const config = getEmbeddedSignupConfig();
+      const { userId, organizationId } = req.user;
+
+      // Generate a unique session ID
+      const sessionId = `es_${userId}_${Date.now()}`;
+
+      // Store session in Redis
+      await cache.set(`embedded_signup:${sessionId}`, {
+        userId,
+        organizationId,
+        createdAt: Date.now(),
+        status: 'initialized'
+      }, 3600); // 1 hour TTL
+
+      res.json({
+        success: true,
+        data: {
+          sessionId,
+          appId: config.appId,
+          configId: config.configId,
+          redirectUri: config.redirectUri,
+          loginUrl: `https://www.facebook.com/v24.0/dialog/oauth?client_id=${config.appId}&redirect_uri=${encodeURIComponent(config.redirectUri)}&config_id=${config.configId}&response_type=code&override_default_response_type=true&extras=${encodeURIComponent(JSON.stringify({ setup: {}, featureType: '', sessionInfoVersion: 2 }))}`,
+          sdkConfig: {
+            scope: 'whatsapp_business_management,whatsapp_business_messaging',
+            extras: {
+              feature: 'whatsapp_embedded_signup',
+              version: 2,
+              sessionInfoVersion: 2
+            }
+          }
+        }
+      });
+    } catch (error) {
+      console.error('Initialize Embedded Signup Error:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Failed to initialize embedded signup',
+        details: error.message
+      });
+    }
+  }
+
+  /**
+   * Handle OAuth Callback from Facebook
+   * Exchange code for access token
+   */
+  static async handleCallback(req, res) {
+    try {
+      const { code, state, sessionId } = req.body;
+      const config = getEmbeddedSignupConfig();
+
+      if (!code) {
+        return res.status(400).json({
+          success: false,
+          error: 'Authorization code is required'
+        });
+      }
+
+      // Verify session
+      const session = await cache.get(`embedded_signup:${sessionId}`);
+      if (!session) {
+        return res.status(400).json({
+          success: false,
+          error: 'Invalid or expired session'
+        });
+      }
+
+      // Exchange code for access token
+      const tokenResponse = await axios.get(`${META_GRAPH_URL}/oauth/access_token`, {
+        params: {
+          client_id: config.appId,
+          client_secret: config.appSecret,
+          redirect_uri: config.redirectUri,
+          code
+        }
+      });
+
+      const { access_token, token_type, expires_in } = tokenResponse.data;
+
+      // Debug token to get user/business info
+      const debugResponse = await axios.get(`${META_GRAPH_URL}/debug_token`, {
+        params: {
+          input_token: access_token,
+          access_token: `${config.appId}|${config.appSecret}`
+        }
+      });
+
+      // Update session with token info
+      await cache.set(`embedded_signup:${sessionId}`, {
+        ...session,
+        accessToken: access_token,
+        expiresIn: expires_in,
+        tokenType: token_type,
+        status: 'authenticated'
+      }, 3600);
+
+      res.json({
+        success: true,
+        data: {
+          sessionId,
+          expiresIn: expires_in,
+          tokenInfo: debugResponse.data.data
+        }
+      });
+    } catch (error) {
+      console.error('Handle Callback Error:', error.response?.data || error);
+      res.status(500).json({
+        success: false,
+        error: 'Failed to exchange authorization code',
+        details: error.response?.data?.error?.message || error.message
+      });
+    }
+  }
+
+  /**
+   * Complete Embedded Signup - Get WABA and Phone Number Info
+   * Called after user completes the signup flow on Facebook
+   */
+  static async completeSignup(req, res) {
+    try {
+      const { sessionId, wabaId, phoneNumberId } = req.body;
+
+      // Get session
+      const session = await cache.get(`embedded_signup:${sessionId}`);
+      if (!session || !session.accessToken) {
+        return res.status(400).json({
+          success: false,
+          error: 'Invalid session or not authenticated'
+        });
+      }
+
+      const accessToken = session.accessToken;
+
+      // Get WABA details
+      const wabaResponse = await axios.get(`${META_GRAPH_URL}/${wabaId}`, {
+        params: {
+          access_token: accessToken,
+          fields: 'id,name,currency,timezone_id,message_template_namespace,account_review_status'
+        }
+      });
+
+      // Get Phone Number details
+      const phoneResponse = await axios.get(`${META_GRAPH_URL}/${phoneNumberId}`, {
+        params: {
+          access_token: accessToken,
+          fields: 'id,display_phone_number,verified_name,quality_rating,platform_type,throughput,is_official_business_account,code_verification_status,name_status'
+        }
+      });
+
+      // Subscribe WABA to webhooks
+      await this.subscribeToWebhooks(wabaId, accessToken);
+
+      // Register phone number for messaging
+      await this.registerPhoneNumber(phoneNumberId, accessToken);
+
+      // Save to database
+      await this.saveWabaDetails(
+        session.userId,
+        session.organizationId,
+        wabaResponse.data,
+        phoneResponse.data,
+        accessToken
+      );
+
+      // Update session status
+      await cache.set(`embedded_signup:${sessionId}`, {
+        ...session,
+        wabaId,
+        phoneNumberId,
+        status: 'completed'
+      }, 3600);
+
+      res.json({
+        success: true,
+        message: 'WhatsApp Business Account successfully connected',
+        data: {
+          waba: {
+            id: wabaResponse.data.id,
+            name: wabaResponse.data.name,
+            currency: wabaResponse.data.currency,
+            timezoneId: wabaResponse.data.timezone_id,
+            templateNamespace: wabaResponse.data.message_template_namespace,
+            reviewStatus: wabaResponse.data.account_review_status
+          },
+          phoneNumber: {
+            id: phoneResponse.data.id,
+            displayPhoneNumber: phoneResponse.data.display_phone_number,
+            verifiedName: phoneResponse.data.verified_name,
+            qualityRating: phoneResponse.data.quality_rating,
+            platformType: phoneResponse.data.platform_type
+          }
+        }
+      });
+    } catch (error) {
+      console.error('Complete Signup Error:', error.response?.data || error);
+      res.status(500).json({
+        success: false,
+        error: 'Failed to complete signup',
+        details: error.response?.data?.error?.message || error.message
+      });
+    }
+  }
+
+  /**
+   * Subscribe WABA to webhooks
+   */
+  static async subscribeToWebhooks(wabaId, accessToken) {
+    try {
+      await axios.post(`${META_GRAPH_URL}/${wabaId}/subscribed_apps`, null, {
+        params: {
+          access_token: accessToken
+        }
+      });
+      console.log(`WABA ${wabaId} subscribed to webhooks`);
+    } catch (error) {
+      console.error('Failed to subscribe to webhooks:', error.response?.data || error);
+      throw error;
+    }
+  }
+
+  /**
+   * Register phone number for messaging
+   */
+  static async registerPhoneNumber(phoneNumberId, accessToken) {
+    try {
+      await axios.post(`${META_GRAPH_URL}/${phoneNumberId}/register`, {
+        messaging_product: 'whatsapp',
+        pin: '123456' // 6-digit PIN for 2FA
+      }, {
+        params: {
+          access_token: accessToken
+        }
+      });
+      console.log(`Phone number ${phoneNumberId} registered`);
+    } catch (error) {
+      // Phone might already be registered
+      console.warn('Register phone number warning:', error.response?.data?.error?.message);
+    }
+  }
+
+  /**
+   * Save WABA details to database
+   */
+  static async saveWabaDetails(userId, organizationId, wabaData, phoneData, accessToken) {
+    const connection = await pool.getConnection();
+    try {
+      await connection.beginTransaction();
+
+      // Insert WABA account
+      const wabaQuery = `
+        INSERT INTO waba_accounts (
+          user_id, organization_id, waba_id, business_name, currency,
+          timezone_id, template_namespace, review_status, access_token, 
+          created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
+        ON DUPLICATE KEY UPDATE
+          business_name = VALUES(business_name),
+          currency = VALUES(currency),
+          access_token = VALUES(access_token),
+          updated_at = NOW()
+      `;
+
+      await connection.execute(wabaQuery, [
+        userId,
+        organizationId,
+        wabaData.id,
+        wabaData.name,
+        wabaData.currency,
+        wabaData.timezone_id,
+        wabaData.message_template_namespace,
+        wabaData.account_review_status,
+        accessToken
+      ]);
+
+      // Insert phone number
+      const phoneQuery = `
+        INSERT INTO phone_numbers (
+          waba_id, phone_number_id, display_phone_number, verified_name,
+          quality_rating, platform_type, status, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, 'CONNECTED', NOW(), NOW())
+        ON DUPLICATE KEY UPDATE
+          verified_name = VALUES(verified_name),
+          quality_rating = VALUES(quality_rating),
+          status = 'CONNECTED',
+          updated_at = NOW()
+      `;
+
+      await connection.execute(phoneQuery, [
+        wabaData.id,
+        phoneData.id,
+        phoneData.display_phone_number,
+        phoneData.verified_name,
+        phoneData.quality_rating,
+        phoneData.platform_type
+      ]);
+
+      // Update user with WABA ID
+      const userQuery = `
+        UPDATE users SET meta_business_account_id = ? WHERE id = ?
+      `;
+      await connection.execute(userQuery, [wabaData.id, userId]);
+
+      await connection.commit();
+
+      // Invalidate user cache
+      await cache.delete(`user_id:${userId}`);
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
+  }
+
+  /**
+   * Get connected WABA accounts for user
+   */
+  static async getConnectedAccounts(req, res) {
+    try {
+      const { userId } = req.user;
+
+      const connection = await pool.getConnection();
+      try {
+        const query = `
+          SELECT 
+            w.id, w.waba_id, w.business_name, w.currency, w.timezone_id,
+            w.template_namespace, w.review_status, w.created_at,
+            p.phone_number_id, p.display_phone_number, p.verified_name,
+            p.quality_rating, p.platform_type, p.status as phone_status
+          FROM waba_accounts w
+          LEFT JOIN phone_numbers p ON w.waba_id = p.waba_id
+          WHERE w.user_id = ?
+          ORDER BY w.created_at DESC
+        `;
+
+        const [rows] = await connection.execute(query, [userId]);
+
+        // Group phone numbers by WABA
+        const accounts = {};
+        rows.forEach(row => {
+          if (!accounts[row.waba_id]) {
+            accounts[row.waba_id] = {
+              id: row.id,
+              wabaId: row.waba_id,
+              businessName: row.business_name,
+              currency: row.currency,
+              timezoneId: row.timezone_id,
+              templateNamespace: row.template_namespace,
+              reviewStatus: row.review_status,
+              createdAt: row.created_at,
+              phoneNumbers: []
+            };
+          }
+          if (row.phone_number_id) {
+            accounts[row.waba_id].phoneNumbers.push({
+              phoneNumberId: row.phone_number_id,
+              displayPhoneNumber: row.display_phone_number,
+              verifiedName: row.verified_name,
+              qualityRating: row.quality_rating,
+              platformType: row.platform_type,
+              status: row.phone_status
+            });
+          }
+        });
+
+        res.json({
+          success: true,
+          data: Object.values(accounts)
+        });
+      } finally {
+        connection.release();
+      }
+    } catch (error) {
+      console.error('Get Connected Accounts Error:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Failed to fetch connected accounts'
+      });
+    }
+  }
+
+  /**
+   * Disconnect WABA account
+   */
+  static async disconnectAccount(req, res) {
+    try {
+      const { wabaId } = req.params;
+      const { userId } = req.user;
+
+      const connection = await pool.getConnection();
+      try {
+        // Verify ownership
+        const [rows] = await connection.execute(
+          'SELECT id FROM waba_accounts WHERE waba_id = ? AND user_id = ?',
+          [wabaId, userId]
+        );
+
+        if (rows.length === 0) {
+          return res.status(404).json({
+            success: false,
+            error: 'WABA account not found'
+          });
+        }
+
+        // Delete phone numbers first
+        await connection.execute(
+          'DELETE FROM phone_numbers WHERE waba_id = ?',
+          [wabaId]
+        );
+
+        // Delete WABA account
+        await connection.execute(
+          'DELETE FROM waba_accounts WHERE waba_id = ?',
+          [wabaId]
+        );
+
+        // Clear WABA from user if it's their default
+        await connection.execute(
+          'UPDATE users SET meta_business_account_id = NULL WHERE id = ? AND meta_business_account_id = ?',
+          [userId, wabaId]
+        );
+
+        res.json({
+          success: true,
+          message: 'WhatsApp Business Account disconnected successfully'
+        });
+      } finally {
+        connection.release();
+      }
+    } catch (error) {
+      console.error('Disconnect Account Error:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Failed to disconnect account'
+      });
+    }
+  }
+
+  /**
+   * Refresh Access Token
+   */
+  static async refreshToken(req, res) {
+    try {
+      const { wabaId } = req.params;
+      const { userId } = req.user;
+      const config = getEmbeddedSignupConfig();
+
+      const connection = await pool.getConnection();
+      try {
+        // Get current token
+        const [rows] = await connection.execute(
+          'SELECT access_token FROM waba_accounts WHERE waba_id = ? AND user_id = ?',
+          [wabaId, userId]
+        );
+
+        if (rows.length === 0) {
+          return res.status(404).json({
+            success: false,
+            error: 'WABA account not found'
+          });
+        }
+
+        const currentToken = rows[0].access_token;
+
+        // Exchange for long-lived token
+        const response = await axios.get(`${META_GRAPH_URL}/oauth/access_token`, {
+          params: {
+            grant_type: 'fb_exchange_token',
+            client_id: config.appId,
+            client_secret: config.appSecret,
+            fb_exchange_token: currentToken
+          }
+        });
+
+        const newToken = response.data.access_token;
+
+        // Update token in database
+        await connection.execute(
+          'UPDATE waba_accounts SET access_token = ?, updated_at = NOW() WHERE waba_id = ?',
+          [newToken, wabaId]
+        );
+
+        res.json({
+          success: true,
+          message: 'Access token refreshed successfully',
+          expiresIn: response.data.expires_in
+        });
+      } finally {
+        connection.release();
+      }
+    } catch (error) {
+      console.error('Refresh Token Error:', error.response?.data || error);
+      res.status(500).json({
+        success: false,
+        error: 'Failed to refresh access token',
+        details: error.response?.data?.error?.message || error.message
+      });
+    }
+  }
+
+  /**
+   * Get Phone Number Quality and Limits
+   */
+  static async getPhoneNumberStatus(req, res) {
+    try {
+      const { phoneNumberId } = req.params;
+      const { userId } = req.user;
+
+      const connection = await pool.getConnection();
+      try {
+        // Get access token for this phone number
+        const [rows] = await connection.execute(`
+          SELECT w.access_token 
+          FROM waba_accounts w
+          JOIN phone_numbers p ON w.waba_id = p.waba_id
+          WHERE p.phone_number_id = ? AND w.user_id = ?
+        `, [phoneNumberId, userId]);
+
+        if (rows.length === 0) {
+          return res.status(404).json({
+            success: false,
+            error: 'Phone number not found'
+          });
+        }
+
+        const accessToken = rows[0].access_token;
+
+        // Get phone number details from Meta API
+        const response = await axios.get(`${META_GRAPH_URL}/${phoneNumberId}`, {
+          params: {
+            access_token: accessToken,
+            fields: 'id,display_phone_number,verified_name,quality_rating,messaging_limit_tier,current_limit,max_daily_conversation_per_phone,max_phone_numbers_per_business'
+          }
+        });
+
+        res.json({
+          success: true,
+          data: {
+            phoneNumberId: response.data.id,
+            displayPhoneNumber: response.data.display_phone_number,
+            verifiedName: response.data.verified_name,
+            qualityRating: response.data.quality_rating,
+            messagingLimitTier: response.data.messaging_limit_tier,
+            currentLimit: response.data.current_limit,
+            maxDailyConversations: response.data.max_daily_conversation_per_phone
+          }
+        });
+      } finally {
+        connection.release();
+      }
+    } catch (error) {
+      console.error('Get Phone Status Error:', error.response?.data || error);
+      res.status(500).json({
+        success: false,
+        error: 'Failed to get phone number status'
+      });
+    }
+  }
+
+  /**
+   * Verify Business (for official business account)
+   */
+  static async initializeBusinessVerification(req, res) {
+    try {
+      const { wabaId } = req.params;
+      const { userId } = req.user;
+
+      const connection = await pool.getConnection();
+      try {
+        const [rows] = await connection.execute(
+          'SELECT access_token FROM waba_accounts WHERE waba_id = ? AND user_id = ?',
+          [wabaId, userId]
+        );
+
+        if (rows.length === 0) {
+          return res.status(404).json({
+            success: false,
+            error: 'WABA account not found'
+          });
+        }
+
+        const accessToken = rows[0].access_token;
+
+        // Get business verification status
+        const response = await axios.get(`${META_GRAPH_URL}/${wabaId}`, {
+          params: {
+            access_token: accessToken,
+            fields: 'account_review_status,business_verification_status'
+          }
+        });
+
+        res.json({
+          success: true,
+          data: {
+            wabaId,
+            accountReviewStatus: response.data.account_review_status,
+            businessVerificationStatus: response.data.business_verification_status,
+            verificationUrl: `https://business.facebook.com/settings/security/?business_id=${wabaId}`
+          }
+        });
+      } finally {
+        connection.release();
+      }
+    } catch (error) {
+      console.error('Business Verification Error:', error.response?.data || error);
+      res.status(500).json({
+        success: false,
+        error: 'Failed to get business verification status'
+      });
+    }
+  }
+}
+
+export default EmbeddedSignupController;
+
+
+src/models/OrganizationDetails.js
+
+import pool from '../config/database.js';
+import { cache } from '../config/redis.js';
+
+const CACHE_TTL = 3600; // 1 hour
+
+class OrganizationDetails {
+  static async create(userId, organizationData) {
+    const connection = await pool.getConnection();
+    try {
+      const {
+        organizationName,
+        physicalAddress,
+        city,
+        state,
+        zipCode,
+        country,
+      } = organizationData;
+
+      const query = `
+        INSERT INTO organization_details 
+        (user_id, organization_name, physical_address, city, state, zip_code, country)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `;
+
+      const [result] = await connection.execute(query, [
+        userId,
+        organizationName || null,
+        physicalAddress || null,
+        city || null,
+        state || null,
+        zipCode || null,
+        country || null,
+      ]);
+
+      // Invalidate cache
+      await cache.delete(`org:${userId}:details`);
+
+      return result.insertId;
+    } finally {
+      connection.release();
+    }
+  }
+
+  static async findByUserId(userId) {
+    // Check cache first
+    const cacheKey = `org:${userId}:details`;
+    const cached = await cache.get(cacheKey);
+    if (cached) {
+      console.log(`Cache hit: ${cacheKey}`);
+      return cached;
+    }
+
+    const connection = await pool.getConnection();
+    try {
+      const query = 'SELECT * FROM organization_details WHERE user_id = ?';
+      const [rows] = await connection.execute(query, [userId]);
+      const org = rows[0] || null;
+      
+      // Cache the result
+      if (org) {
+        await cache.set(cacheKey, org, CACHE_TTL);
+      }
+      
+      return org;
+    } finally {
+      connection.release();
+    }
+  }
+
+  static async update(userId, organizationData) {
+    const connection = await pool.getConnection();
+    try {
+      const {
+        organizationName,
+        physicalAddress,
+        city,
+        state,
+        zipCode,
+        country,
+      } = organizationData;
+
+      const query = `
+        UPDATE organization_details 
+        SET organization_name = ?, 
+            physical_address = ?, 
+            city = ?, 
+            state = ?, 
+            zip_code = ?, 
+            country = ?
+        WHERE user_id = ?
+      `;
+
+      const [result] = await connection.execute(query, [
+        organizationName || null,
+        physicalAddress || null,
+        city || null,
+        state || null,
+        zipCode || null,
+        country || null,
+        userId,
+      ]);
+
+      // Invalidate cache
+      if (result.affectedRows > 0) {
+        await cache.delete(`org:${userId}:details`);
+      }
+
+      return result.affectedRows > 0;
+    } finally {
+      connection.release();
+    }
+  }
+
+  static async delete(userId) {
+    const connection = await pool.getConnection();
+    try {
+      const query = 'DELETE FROM organization_details WHERE user_id = ?';
+      const [result] = await connection.execute(query, [userId]);
+      
+      // Invalidate cache
+      if (result.affectedRows > 0) {
+        await cache.delete(`org:${userId}:details`);
+      }
+      
+      return result.affectedRows > 0;
+    } finally {
+      connection.release();
+    }
+  }
+}
+
+export default OrganizationDetails;
+
+
+src/models/User.js
+
+import pool from '../config/database.js';
+import { cache } from '../config/redis.js';
+
+const CACHE_TTL = 3600; // 1 hour
+
+class User {
+  static async create(email, passwordHash, name) {
+    const connection = await pool.getConnection();
+    try {
+      const query = 'INSERT INTO users (email, password, name) VALUES (?, ?, ?)';
+      const [result] = await connection.execute(query, [email, passwordHash, name]);
+      
+      // Invalidate cache
+      await cache.delete(`user_email:${email}`);
+      
+      return result.insertId;
+    } finally {
+      connection.release();
+    }
+  }
+
+  static async findByEmail(email) {
+    // Check cache first
+    const cacheKey = `user_email:${email}`;
+    const cached = await cache.get(cacheKey);
+    if (cached) {
+      console.log(`Cache hit: ${cacheKey}`);
+      return cached;
+    }
+
+    const connection = await pool.getConnection();
+    try {
+      const query = 'SELECT id, email, password, name, meta_business_account_id, user_balance, marketing_message_price, utility_message_price, auth_message_price FROM users WHERE email = ?';
+      const [rows] = await connection.execute(query, [email]);
+      const user = rows[0] || null;
+      
+      // Cache the result
+      if (user) {
+        await cache.set(cacheKey, user, CACHE_TTL);
+      }
+      
+      return user;
+    } finally {
+      connection.release();
+    }
+  }
+
+  static async findById(id) {
+    // Check cache first
+    const cacheKey = `user_id:${id}`;
+    const cached = await cache.get(cacheKey);
+    if (cached) {
+      console.log(`Cache hit: ${cacheKey}`);
+      return cached;
+    }
+
+    const connection = await pool.getConnection();
+    try {
+      const query = 'SELECT id, email, name, meta_business_account_id, user_balance, marketing_message_price, utility_message_price, auth_message_price FROM users WHERE id = ?';
+      const [rows] = await connection.execute(query, [id]);
+      const user = rows[0] || null;
+      
+      // Cache the result
+      if (user) {
+        await cache.set(cacheKey, user, CACHE_TTL);
+      }
+      
+      return user;
+    } finally {
+      connection.release();
+    }
+  }
+
+  static async updatePassword(id, newPasswordHash) {
+    const connection = await pool.getConnection();
+    try {
+      const query = 'UPDATE users SET password = ? WHERE id = ?';
+      const [result] = await connection.execute(query, [newPasswordHash, id]);
+      
+      // Invalidate user cache
+      if (result.affectedRows > 0) {
+        await cache.delete(`user_id:${id}`);
+      }
+      
+      return result.affectedRows > 0;
+    } finally {
+      connection.release();
+    }
+  }
+
+  static async updateProfile(id, name, email) {
+    const connection = await pool.getConnection();
+    try {
+      const query = 'UPDATE users SET name = ?, email = ? WHERE id = ?';
+      const [result] = await connection.execute(query, [name, email, id]);
+      
+      // Invalidate user cache
+      if (result.affectedRows > 0) {
+        await cache.delete(`user_id:${id}`);
+        await cache.delete(`user_email:${email}`);
+      }
+      
+      return result.affectedRows > 0;
+    } finally {
+      connection.release();
+    }
+  }
+
+  static async delete(id) {
+    const connection = await pool.getConnection();
+    try {
+      // Get user before deletion to invalidate email cache
+      const user = await this.findById(id);
+      
+      const query = 'DELETE FROM users WHERE id = ?';
+      const [result] = await connection.execute(query, [id]);
+      
+      // Invalidate user cache
+      if (result.affectedRows > 0) {
+        await cache.delete(`user_id:${id}`);
+        if (user && user.email) {
+          await cache.delete(`user_email:${user.email}`);
+        }
+      }
+      
+      return result.affectedRows > 0;
+    } finally {
+      connection.release();
+    }
+  }
+
+  static async createPasswordResetToken(email, token, expiresAt) {
+    const connection = await pool.getConnection();
+    try {
+      const query = 'UPDATE users SET reset_token = ?, reset_token_expires = ? WHERE email = ?';
+      const [result] = await connection.execute(query, [token, expiresAt, email]);
+      return result.affectedRows > 0;
+    } finally {
+      connection.release();
+    }
+  }
+
+  static async findByResetToken(token) {
+    const connection = await pool.getConnection();
+    try {
+      const query = 'SELECT id, email, name, reset_token_expires FROM users WHERE reset_token = ? AND reset_token_expires > NOW()';
+      const [rows] = await connection.execute(query, [token]);
+      return rows[0] || null;
+    } finally {
+      connection.release();
+    }
+  }
+
+  static async clearResetToken(id) {
+    const connection = await pool.getConnection();
+    try {
+      const query = 'UPDATE users SET reset_token = NULL, reset_token_expires = NULL WHERE id = ?';
+      const [result] = await connection.execute(query, [id]);
+      return result.affectedRows > 0;
+    } finally {
+      connection.release();
+    }
+  }
+
+  static async getResetAttempts(email) {
+    const connection = await pool.getConnection();
+    try {
+      const query = 'SELECT reset_attempts, reset_attempts_reset_at FROM users WHERE email = ?';
+      const [rows] = await connection.execute(query, [email]);
+      return rows[0] || null;
+    } finally {
+      connection.release();
+    }
+  }
+
+  static async incrementResetAttempts(email) {
+    const connection = await pool.getConnection();
+    try {
+      const query = `
+        UPDATE users 
+        SET reset_attempts = reset_attempts + 1,
+            reset_attempts_reset_at = CASE 
+              WHEN reset_attempts_reset_at IS NULL THEN NOW()
+              WHEN reset_attempts_reset_at < DATE_SUB(NOW(), INTERVAL 1 DAY) THEN NOW()
+              ELSE reset_attempts_reset_at
+            END
+        WHERE email = ?
+      `;
+      const [result] = await connection.execute(query, [email]);
+      return result.affectedRows > 0;
+    } finally {
+      connection.release();
+    }
+  }
+
+  static async resetAttemptCounter(email) {
+    const connection = await pool.getConnection();
+    try {
+      const query = 'UPDATE users SET reset_attempts = 0, reset_attempts_reset_at = NULL WHERE email = ?';
+      const [result] = await connection.execute(query, [email]);
+      return result.affectedRows > 0;
+    } finally {
+      connection.release();
+    }
+  }
+
+  static async updateMetaBusinessAccountId(userId, metaBusinessAccountId) {
+    const connection = await pool.getConnection();
+    try {
+      const query = 'UPDATE users SET meta_business_account_id = ? WHERE id = ?';
+      const [result] = await connection.execute(query, [metaBusinessAccountId, userId]);
+      
+      // Invalidate user cache
+      if (result.affectedRows > 0) {
+        await cache.delete(`user_id:${userId}`);
+        // Get user email to invalidate email cache
+        const user = await this.findById(userId);
+        if (user && user.email) {
+          await cache.delete(`user_email:${user.email}`);
+        }
+      }
+      
+      return result.affectedRows > 0;
+    } finally {
+      connection.release();
+    }
+  }
+
+  static async getBalance(userId) {
+    const connection = await pool.getConnection();
+    try {
+      const query = 'SELECT user_balance FROM users WHERE id = ?';
+      const [rows] = await connection.execute(query, [userId]);
+      return rows[0]?.user_balance || 0;
+    } finally {
+      connection.release();
+    }
+  }
+
+  static async updateBalance(userId, newBalance) {
+    const connection = await pool.getConnection();
+    try {
+      const query = 'UPDATE users SET user_balance = ? WHERE id = ?';
+      const [result] = await connection.execute(query, [newBalance, userId]);
+      
+      // Invalidate user cache
+      if (result.affectedRows > 0) {
+        await cache.delete(`user_id:${userId}`);
+      }
+      
+      return result.affectedRows > 0;
+    } finally {
+      connection.release();
+    }
+  }
+
+  static async updateMessagePrices(userId, prices) {
+    const connection = await pool.getConnection();
+    try {
+      const updates = [];
+      const values = [];
+      
+      if (prices.marketingMessagePrice !== undefined) {
+        updates.push('marketing_message_price = ?');
+        values.push(prices.marketingMessagePrice);
+      }
+      if (prices.utilityMessagePrice !== undefined) {
+        updates.push('utility_message_price = ?');
+        values.push(prices.utilityMessagePrice);
+      }
+      if (prices.authMessagePrice !== undefined) {
+        updates.push('auth_message_price = ?');
+        values.push(prices.authMessagePrice);
+      }
+      
+      if (updates.length === 0) return false;
+      
+      values.push(userId);
+      const query = `UPDATE users SET ${updates.join(', ')} WHERE id = ?`;
+      const [result] = await connection.execute(query, values);
+      
+      // Invalidate user cache
+      if (result.affectedRows > 0) {
+        await cache.delete(`user_id:${userId}`);
+      }
+      
+      return result.affectedRows > 0;
+    } finally {
+      connection.release();
+    }
+  }
+}
+
+export default User;
+
+
+src/models/WalletTransaction.js
+
+import pool from '../config/database.js';
+import { cache } from '../config/redis.js';
+
+class WalletTransaction {
+  static async create(userId, transactionType, amount, balanceBefore, balanceAfter, description) {
+    const connection = await pool.getConnection();
+    try {
+      const query = `
+        INSERT INTO wallet_transactions 
+        (user_id, transaction_type, amount, balance_before, balance_after, description) 
+        VALUES (?, ?, ?, ?, ?, ?)
+      `;
+      const [result] = await connection.execute(query, [
+        userId,
+        transactionType,
+        amount,
+        balanceBefore,
+        balanceAfter,
+        description
+      ]);
+      
+      return result.insertId;
+    } finally {
+      connection.release();
+    }
+  }
+
+  static async findByUserId(userId, limit = 50, offset = 0) {
+    const connection = await pool.getConnection();
+    try {
+      // Using query() instead of execute() because MySQL prepared statements
+      // have issues with LIMIT/OFFSET placeholders
+      const query = `
+        SELECT id, transaction_type, amount, balance_before, balance_after, description, created_at 
+        FROM wallet_transactions 
+        WHERE user_id = ? 
+        ORDER BY created_at DESC 
+        LIMIT ${parseInt(limit)} OFFSET ${parseInt(offset)}
+      `;
+      const [rows] = await connection.execute(query, [userId]);
+      return rows;
+    } finally {
+      connection.release();
+    }
+  }
+
+  static async getTransactionCount(userId) {
+    const connection = await pool.getConnection();
+    try {
+      const query = 'SELECT COUNT(*) as count FROM wallet_transactions WHERE user_id = ?';
+      const [rows] = await connection.execute(query, [userId]);
+      return rows[0].count;
+    } finally {
+      connection.release();
+    }
+  }
+
+  static async findById(id) {
+    const connection = await pool.getConnection();
+    try {
+      const query = `
+        SELECT id, user_id, transaction_type, amount, balance_before, balance_after, description, created_at 
+        FROM wallet_transactions 
+        WHERE id = ?
+      `;
+      const [rows] = await connection.execute(query, [id]);
+      return rows[0] || null;
+    } finally {
+      connection.release();
+    }
+  }
+
+  static async getTotalCredits(userId) {
+    const connection = await pool.getConnection();
+    try {
+      const query = `
+        SELECT COALESCE(SUM(amount), 0) as total 
+        FROM wallet_transactions 
+        WHERE user_id = ? AND transaction_type = 'credit'
+      `;
+      const [rows] = await connection.execute(query, [userId]);
+      return parseFloat(rows[0].total);
+    } finally {
+      connection.release();
+    }
+  }
+
+  static async getTotalDebits(userId) {
+    const connection = await pool.getConnection();
+    try {
+      const query = `
+        SELECT COALESCE(SUM(amount), 0) as total 
+        FROM wallet_transactions 
+        WHERE user_id = ? AND transaction_type = 'debit'
+      `;
+      const [rows] = await connection.execute(query, [userId]);
+      return parseFloat(rows[0].total);
+    } finally {
+      connection.release();
+    }
+  }
+}
+
+export default WalletTransaction;
+
+
+src/routes/authRoutes.js
+
+import express from 'express';
+import {
+  register,
+  login,
+  getProfile,
+  changePassword,
+  forgotPassword,
+  resetPassword,
+  updateProfile,
+  deleteAccount,
+  updateMetaBusinessAccountId,
+} from '../controllers/authController.js';
+import verifyToken from '../middleware/auth.js';
+
+const router = express.Router();
+
+// Public routes
+router.post('/register', register);
+router.post('/login', login);
+router.post('/forgot-password', forgotPassword);
+router.post('/reset-password', resetPassword);
+
+// Protected routes
+router.get('/profile', verifyToken, getProfile);
+router.put('/profile', verifyToken, updateProfile);
+router.post('/change-password', verifyToken, changePassword);
+router.post('/meta-business-account', verifyToken, updateMetaBusinessAccountId);
+router.delete('/account', verifyToken, deleteAccount);
+
+export default router;
+
+
+src/routes/embeddedSignupRoutes.js
+
+
+import express from 'express';
+import EmbeddedSignupController from '../controllers/embeddedSignupController.js';
+import verifyToken from '../middleware/auth.js';
+
+const router = express.Router();
+
+/**
+ * @route   POST /user-service/api/embedded-signup/initialize
+ * @desc    Initialize Embedded Signup session
+ * @access  Private
+ */
+router.post('/initialize', verifyToken, EmbeddedSignupController.initializeSignup);
+
+/**
+ * @route   POST /user-service/api/embedded-signup/callback
+ * @desc    Handle OAuth callback from Facebook
+ * @access  Private
+ */
+router.post('/callback', verifyToken, EmbeddedSignupController.handleCallback);
+
+/**
+ * @route   POST /user-service/api/embedded-signup/complete
+ * @desc    Complete Embedded Signup with WABA and Phone details
+ * @access  Private
+ */
+router.post('/complete', verifyToken, EmbeddedSignupController.completeSignup);
+
+/**
+ * @route   GET /user-service/api/embedded-signup/accounts
+ * @desc    Get all connected WABA accounts
+ * @access  Private
+ */
+router.get('/accounts', verifyToken, EmbeddedSignupController.getConnectedAccounts);
+
+/**
+ * @route   DELETE /user-service/api/embedded-signup/accounts/:wabaId
+ * @desc    Disconnect a WABA account
+ * @access  Private
+ */
+router.delete('/accounts/:wabaId', verifyToken, EmbeddedSignupController.disconnectAccount);
+
+/**
+ * @route   POST /user-service/api/embedded-signup/accounts/:wabaId/refresh-token
+ * @desc    Refresh access token for a WABA account
+ * @access  Private
+ */
+router.post('/accounts/:wabaId/refresh-token', verifyToken, EmbeddedSignupController.refreshToken);
+
+/**
+ * @route   GET /user-service/api/embedded-signup/phone/:phoneNumberId/status
+ * @desc    Get phone number status and quality
+ * @access  Private
+ */
+router.get('/phone/:phoneNumberId/status', verifyToken, EmbeddedSignupController.getPhoneNumberStatus);
+
+/**
+ * @route   GET /user-service/api/embedded-signup/accounts/:wabaId/verification
+ * @desc    Get business verification status
+ * @access  Private
+ */
+router.get('/accounts/:wabaId/verification', verifyToken, EmbeddedSignupController.initializeBusinessVerification);
+
+export default router;
+
+
+src/routes/organizationRoutes.js
+
+import express from 'express';
+import {
+  createOrUpdateOrganizationDetails,
+  getOrganizationDetails,
+} from '../controllers/organizationController.js';
+import verifyToken from '../middleware/auth.js';
+
+const router = express.Router();
+
+// Create or Update organization details with single POST endpoint
+router.post('/details', verifyToken, createOrUpdateOrganizationDetails);
+
+// Get organization details
+router.get('/details', verifyToken, getOrganizationDetails);
+
+export default router;
+
+
+src/routes/walletRoutes.js
+
+import express from 'express';
+import {
+  addBalance,
+  deductBalance,
+  getBalance,
+  getTransactions,
+  updateMessagePrices,
+} from '../controllers/walletController.js';
+import verifyToken from '../middleware/auth.js';
+
+const router = express.Router();
+
+// All wallet routes are protected
+router.post('/add', verifyToken, addBalance);
+router.post('/deduct', verifyToken, deductBalance);
+router.get('/balance', verifyToken, getBalance);
+router.get('/transactions', verifyToken, getTransactions);
+router.put('/pricing', verifyToken, updateMessagePrices);
+
+export default router;
+
+
+src/app.js
+
+import express from 'express';
+import dotenv from 'dotenv';
+import helmet from 'helmet';
+import cors from 'cors';
+import morgan from 'morgan';
+import authRoutes from './routes/authRoutes.js';
+import organizationRoutes from './routes/organizationRoutes.js';
+import walletRoutes from './routes/walletRoutes.js';
+import embeddedSignupRoutes from './routes/embeddedSignupRoutes.js';
+import { connectDB } from './config/database.js';
+import { connectRedis } from './config/redis.js';
+
+dotenv.config();
+
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+// Initialize connections
+const initializeConnections = async () => {
+  await connectDB();
+  await connectRedis();
+};
+
+initializeConnections();
+
+// Middleware
+app.use(helmet());
+app.use(cors());
+app.use(morgan('dev'));
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+// Health check
+app.get('/health', (req, res) => {
+  res.json({ 
+    success: true,
+    message: 'User Service is running',
+    timestamp: new Date().toISOString()
+  });
+});
+
+// Routes
+app.use('/user-service/api/auth', authRoutes);
+app.use('/user-service/api/organization', organizationRoutes);
+app.use('/user-service/api/wallet', walletRoutes);
+app.use('/user-service/api/embedded-signup', embeddedSignupRoutes);
+
+// 404 handler
+app.use((req, res) => {
+  res.status(404).json({
+    success: false,
+    error: `Route not found - ${req.originalUrl}`
+  });
+});
+
+// Error handler
+app.use((err, req, res, next) => {
+  console.error('Error:', err);
+  res.status(err.statusCode || 500).json({
+    success: false,
+    error: err.message || 'Internal Server Error',
+    ...(process.env.NODE_ENV === 'development' && { stack: err.stack })
+  });
+});
+
+app.listen(PORT, () => {
+  console.log(`User Service running on port ${PORT}`);
+  console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
+});
+
+
+.env file
+
+# User Service Environment Variables
+PORT=3000
+NODE_ENV=production
+
+# Database Configuration (MySQL)
+DB_HOST=127.0.0.1
+DB_PORT=3308
+DB_USER=root
+DB_PASSWORD=hidden
+DB_NAME=user_service
+
+# Redis Configuration
+REDIS_URL=redis://127.0.0.1:6380
+REDIS_HOST=127.0.0.1
+REDIS_PORT=6380
+
+# JWT Configuration
+JWT_SECRET=hidden
+JWT_EXPIRES_IN=7d
+
+# Meta/Facebook Configuration (placeholder - update with actual values)
+META_APP_ID=hidden
+META_APP_SECRET=hidden
+META_EMBEDDED_SIGNUP_CONFIG_ID=hidden
+
+
+API_DOCUMENTATION.md
+
+
+# User Service API Documentation
+
+## Table of Contents
+1. [Overview](#overview)
+2. [Authentication](#authentication)
+3. [Caching & Performance](#caching--performance)
+4. [Base URL](#base-url)
+5. [API Endpoints](#api-endpoints)
+6. [Error Responses](#error-responses)
+7. [Complete Workflow Examples](#complete-workflow-examples)
+8. [Testing Guide](#testing-guide)
+
+---
+
+## Overview
+
+The User Service API provides complete user authentication and profile management functionality including:
+- User registration and login with JWT authentication
+- Password management (change password, forgot password, reset password)
+- User profile management (get, update)
+- Account management (delete account)
+- Organization/Business details management
+- **Wallet management with balance tracking and transaction history**
+- **Per-message pricing configuration for marketing, utility, and auth messages**
+- Rate limiting for password reset attempts
+- **Redis caching for improved performance**
+
+**Version**: 1.0.0  
+**Base URL**: `http://localhost:3000/user-service`
+
+---
+
+## Authentication
+
+All protected endpoints require JWT token authentication via the `Authorization` header.
+
+### Header Format
+```
+Authorization: Bearer <JWT_TOKEN>
+```
+
+### Token Example
+```
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6MSwiZW1haWwiOiJ1c2VyQGV4YW1wbGUuY29tIiwiaWF0IjoxNzAyNzI4MDAwLCJleHAiOjE3MDI4MTQ0MDB9.xyz123abc
+```
+
+### How to Get Token
+1. Register a new user or login with existing credentials
+2. Response will include a JWT token
+3. Include this token in the `Authorization` header for protected endpoints
+4. Token expires after 24 hours (configurable via `JWT_EXPIRY` in .env)
+
+---
+
+## Caching & Performance
+
+### Redis Caching
+
+This API includes **Redis caching** for improved response times:
+
+- **User Profile Cache**: GET profile requests are cached for 1 hour
+- **Organization Details Cache**: GET organization details are cached for 1 hour
+- **Automatic Invalidation**: Cache is cleared when data is updated
+
+**Expected Performance Improvements**:
+- Profile GET requests: 80-90% faster
+- Login requests: 50-70% faster (caches user lookup)
+- Organization GET requests: 80-90% faster
+
+**Graceful Degradation**: If Redis is unavailable, the API continues to work with direct database queries (no caching benefit, but still functional).
+
+For detailed information about caching configuration and monitoring, see [REDIS_CACHING.md](./REDIS_CACHING.md).
+
+---## Base URL
+
+```
+http://localhost:3000/user-service
+```
+
+---
+
+## API Endpoints
+
+### Authentication Endpoints
+
+#### 1. Register User (Public)
+
+Create a new user account.
+
+**Endpoint**: `POST /api/auth/register`
+
+**Headers**:
+```
+Content-Type: application/json
+```
+
+**Request Body**:
+```json
+{
+  "email": "john@example.com",
+  "password": "Password123!",
+  "name": "John Doe"
+}
+```
+
+**cURL**:
+```bash
+curl -X POST http://localhost:3000/user-service/api/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "john@example.com",
+    "password": "Password123!",
+    "name": "John Doe"
+  }'
+```
+
+**Response (201 Created)**:
+```json
+{
+  "message": "User registered successfully",
+  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "user": {
+    "id": 1,
+    "email": "john@example.com",
+    "name": "John Doe"
+  }
+}
+```
+
+**Possible Errors**:
+- `400`: Missing required fields (email, password, name)
+- `409`: User already exists with that email
+
+---
+
+#### 2. Login (Public)
+
+Authenticate user and get JWT token.
+
+**Endpoint**: `POST /api/auth/login`
+
+**Headers**:
+```
+Content-Type: application/json
+```
+
+**Request Body**:
+```json
+{
+  "email": "john@example.com",
+  "password": "Password123!"
+}
+```
+
+**cURL**:
+```bash
+curl -X POST http://localhost:3000/user-service/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "john@example.com",
+    "password": "Password123!"
+  }'
+```
+
+**Response (200 OK)**:
+```json
+{
+  "message": "Login successful",
+  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "user": {
+    "id": 1,
+    "email": "john@example.com",
+    "name": "John Doe"
+  }
+}
+```
+
+**Possible Errors**:
+- `400`: Missing email or password
+- `401`: Invalid credentials
+
+---
+
+#### 3. Get Profile (Protected)
+
+Retrieve authenticated user's complete profile information including user details, wallet balance, message pricing, and organization details.
+
+**Endpoint**: `GET /api/auth/profile`
+
+**Headers**:
+```
+Authorization: Bearer <JWT_TOKEN>
+```
+
+**cURL**:
+```bash
+curl -X GET http://localhost:3000/user-service/api/auth/profile \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+```
+
+**Response (200 OK)**:
+```json
+{
+  "user": {
+    "id": 1,
+    "email": "john@example.com",
+    "name": "John Doe",
+    "metaBusinessAccountId": "123456789012345"
+  },
+  "wallet": {
+    "balance": 100.50,
+    "pricing": {
+      "marketingMessage": 0.10,
+      "utilityMessage": 0.05,
+      "authMessage": 0.05
+    }
+  },
+  "organization": {
+    "id": 1,
+    "organizationName": "Nyife",
+    "physicalAddress": "123 Business Street",
+    "city": "Delhi",
+    "state": "Delhi",
+    "zipCode": "110063",
+    "country": "India",
+    "createdAt": "2025-12-16T10:30:00.000Z",
+    "updatedAt": "2025-12-16T10:30:00.000Z"
+  }
+}
+```
+
+**Note**: 
+- `metaBusinessAccountId` will be `null` if not set
+- `organization` will be `null` if organization details not added
+
+**Possible Errors**:
+- `401`: No token provided
+- `403`: Invalid or expired token
+- `404`: User not found
+
+---
+
+#### 4. Update Profile (Protected)
+
+Update user's name and email.
+
+**Endpoint**: `PUT /api/auth/profile`
+
+**Headers**:
+```
+Authorization: Bearer <JWT_TOKEN>
+Content-Type: application/json
+```
+
+**Request Body**:
+```json
+{
+  "name": "John Smith",
+  "email": "john.smith@example.com"
+}
+```
+
+**cURL**:
+```bash
+curl -X PUT http://localhost:3000/user-service/api/auth/profile \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "John Smith",
+    "email": "john.smith@example.com"
+  }'
+```
+
+**Response (200 OK)**:
+```json
+{
+  "message": "Profile updated successfully",
+  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "user": {
+    "id": 1,
+    "name": "John Smith",
+    "email": "john.smith@example.com"
+  }
+}
+```
+
+**Possible Errors**:
+- `400`: Missing name or email
+- `401`: No token provided
+- `403`: Invalid or expired token
+- `409`: Email already in use by another user
+
+---
+
+#### 5. Change Password (Protected)
+
+Change password for authenticated user.
+
+**Endpoint**: `POST /api/auth/change-password`
+
+**Headers**:
+```
+Authorization: Bearer <JWT_TOKEN>
+Content-Type: application/json
+```
+
+**Request Body**:
+```json
+{
+  "currentPassword": "Password123!",
+  "newPassword": "NewPassword456!"
+}
+```
+
+**cURL**:
+```bash
+curl -X POST http://localhost:3000/user-service/api/auth/change-password \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." \
+  -H "Content-Type: application/json" \
+  -d '{
+    "currentPassword": "Password123!",
+    "newPassword": "NewPassword456!"
+  }'
+```
+
+**Response (200 OK)**:
+```json
+{
+  "message": "Password changed successfully"
+}
+```
+
+**Possible Errors**:
+- `400`: Missing current or new password
+- `401`: Current password is incorrect
+- `403`: Invalid or expired token
+
+---
+
+#### 6. Forgot Password (Public)
+
+Request password reset token (rate limited to 3 times per 24 hours).
+
+**Endpoint**: `POST /api/auth/forgot-password`
+
+**Headers**:
+```
+Content-Type: application/json
+```
+
+**Request Body**:
+```json
+{
+  "email": "john@example.com"
+}
+```
+
+**cURL**:
+```bash
+curl -X POST http://localhost:3000/user-service/api/auth/forgot-password \
+  -H "Content-Type: application/json" \
+  -d '{"email": "john@example.com"}'
+```
+
+**Response (200 OK)**:
+```json
+{
+  "message": "Password reset token generated",
+  "resetToken": "a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6",
+  "expiresAt": "2025-12-16T15:30:00.000Z"
+}
+```
+
+**Possible Errors**:
+- `400`: Email is required
+- `429`: Too many password reset attempts (limit: 3 per 24 hours)
+
+**Note**: In production, reset token is sent via email. For testing, token is returned in response.
+
+---
+
+#### 7. Reset Password (Public)
+
+Reset password using reset token.
+
+**Endpoint**: `POST /api/auth/reset-password`
+
+**Headers**:
+```
+Content-Type: application/json
+```
+
+**Request Body**:
+```json
+{
+  "token": "a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6",
+  "newPassword": "BrandNewPassword789!"
+}
+```
+
+**cURL**:
+```bash
+curl -X POST http://localhost:3000/user-service/api/auth/reset-password \
+  -H "Content-Type: application/json" \
+  -d '{
+    "token": "a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6",
+    "newPassword": "BrandNewPassword789!"
+  }'
+```
+
+**Response (200 OK)**:
+```json
+{
+  "message": "Password reset successfully"
+}
+```
+
+**Possible Errors**:
+- `400`: Token and new password are required
+- `400`: Invalid or expired reset token
+
+---
+
+#### 8. Delete Account (Protected)
+
+Delete user account permanently.
+
+**Endpoint**: `DELETE /api/auth/account`
+
+**Headers**:
+```
+Authorization: Bearer <JWT_TOKEN>
+Content-Type: application/json
+```
+
+**Request Body**:
+```json
+{
+  "password": "Password123!"
+}
+```
+
+**cURL**:
+```bash
+curl -X DELETE http://localhost:3000/user-service/api/auth/account \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." \
+  -H "Content-Type: application/json" \
+  -d '{"password": "Password123!"}'
+```
+
+**Response (200 OK)**:
+```json
+{
+  "message": "Account deleted successfully"
+}
+```
+
+**Possible Errors**:
+- `400`: Password is required
+- `401`: Password is incorrect
+- `403`: Invalid or expired token
+
+---
+
+#### 9. Update Meta Business Account ID (Protected)
+
+Update user's Meta/Facebook Business Account ID. This value is included in the JWT token for easy access.
+
+**Endpoint**: `POST /api/auth/meta-business-account`
+
+**Headers**:
+```
+Authorization: Bearer <JWT_TOKEN>
+Content-Type: application/json
+```
+
+**Request Body**:
+```json
+{
+  "metaBusinessAccountId": "123456789012345"
+}
+```
+
+**cURL**:
+```bash
+curl -X POST http://localhost:3000/user-service/api/auth/meta-business-account \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." \
+  -H "Content-Type: application/json" \
+  -d '{"metaBusinessAccountId": "123456789012345"}'
+```
+
+**Response (200 OK)**:
+```json
+{
+  "message": "Meta Business Account ID updated successfully",
+  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "user": {
+    "id": 1,
+    "email": "john@example.com",
+    "name": "John Doe",
+    "metaBusinessAccountId": "123456789012345"
+  }
+}
+```
+
+**Possible Errors**:
+- `400`: Meta Business Account ID is required
+- `401`: No token provided
+- `403`: Invalid or expired token
+- `404`: User not found
+- `500`: Failed to update
+
+**Note**: 
+- After updating, a new JWT token is issued with the updated `metaBusinessAccountId`
+- The `metaBusinessAccountId` will be available in decoded JWT token as `req.user.metaBusinessAccountId`
+- Use the new token for subsequent requests
+
+---
+
+### Organization Details Endpoints
+
+#### 10. Create or Update Organization Details (Protected)
+
+Single endpoint that creates organization details on first call and updates on subsequent calls.
+
+**Endpoint**: `POST /api/organization/details`
+
+**Headers**:
+```
+Authorization: Bearer <JWT_TOKEN>
+Content-Type: application/json
+```
+
+**Request Body**:
+```json
+{
+  "organizationName": "Nyife",
+  "physicalAddress": "123 Business Street",
+  "city": "Delhi",
+  "state": "Delhi",
+  "zipCode": "110063",
+  "country": "India"
+}
+```
+
+**cURL**:
+```bash
+curl -X POST http://localhost:3000/user-service/api/organization/details \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." \
+  -H "Content-Type: application/json" \
+  -d '{
+    "organizationName": "Nyife",
+    "physicalAddress": "123 Business Street",
+    "city": "Delhi",
+    "state": "Delhi",
+    "zipCode": "110063",
+    "country": "India"
+  }'
+```
+
+**Response on Create (201 Created)**:
+```json
+{
+  "message": "Organization details added successfully",
+  "organizationDetails": {
+    "id": 1,
+    "userId": 1,
+    "organizationName": "Nyife",
+    "physicalAddress": "123 Business Street",
+    "city": "Delhi",
+    "state": "Delhi",
+    "zipCode": "110063",
+    "country": "India"
+  }
+}
+```
+
+**Response on Update (200 OK)**:
+```json
+{
+  "message": "Organization details updated successfully",
+  "organizationDetails": {
+    "id": 1,
+    "userId": 1,
+    "organizationName": "Nyife Global",
+    "physicalAddress": "456 New Avenue",
+    "city": "Mumbai",
+    "state": "Maharashtra",
+    "zipCode": "400001",
+    "country": "India"
+  }
+}
+```
+
+**Possible Errors**:
+- `400`: Organization name is required
+- `401`: No token provided
+- `403`: Invalid or expired token
+- `404`: User not found
+
+---
+
+#### 11. Get Organization Details (Protected)
+
+Retrieve organization details for authenticated user.
+
+**Endpoint**: `GET /api/organization/details`
+
+**Headers**:
+```
+Authorization: Bearer <JWT_TOKEN>
+```
+
+**cURL**:
+```bash
+curl -X GET http://localhost:3000/user-service/api/organization/details \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+```
+
+**Response (200 OK)**:
+```json
+{
+  "organizationDetails": {
+    "id": 1,
+    "userId": 1,
+    "organizationName": "Nyife",
+    "physicalAddress": "123 Business Street",
+    "city": "Delhi",
+    "state": "Delhi",
+    "zipCode": "110063",
+    "country": "India",
+    "createdAt": "2025-12-16T10:30:00.000Z",
+    "updatedAt": "2025-12-16T10:30:00.000Z"
+  }
+}
+```
+
+**Possible Errors**:
+- `401`: No token provided
+- `403`: Invalid or expired token
+- `404`: Organization details not found or user not found
+
+---
+
+### Wallet Endpoints
+
+#### 12. Add Balance (Protected)
+
+Add funds to user's wallet balance.
+
+**Endpoint**: `POST /api/wallet/add`
+
+**Headers**:
+```
+Authorization: Bearer <JWT_TOKEN>
+Content-Type: application/json
+```
+
+**Request Body**:
+```json
+{
+  "amount": 100.50,
+  "description": "Initial deposit"
+}
+```
+
+**cURL**:
+```bash
+curl -X POST http://localhost:3000/user-service/api/wallet/add \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." \
+  -H "Content-Type: application/json" \
+  -d '{
+    "amount": 100.50,
+    "description": "Initial deposit"
+  }'
+```
+
+**Response (200 OK)**:
+```json
+{
+  "message": "Balance added successfully",
+  "transaction": {
+    "id": 1,
+    "type": "credit",
+    "amount": 100.50,
+    "balanceBefore": 0.00,
+    "balanceAfter": 100.50,
+    "description": "Initial deposit"
+  },
+  "currentBalance": 100.50
+}
+```
+
+**Possible Errors**:
+- `400`: Amount must be greater than 0
+- `401`: No token provided
+- `403`: Invalid or expired token
+- `500`: Failed to update balance
+
+---
+
+#### 13. Deduct Balance (Protected)
+
+Deduct funds from user's wallet balance.
+
+**Endpoint**: `POST /api/wallet/deduct`
+
+**Headers**:
+```
+Authorization: Bearer <JWT_TOKEN>
+Content-Type: application/json
+```
+
+**Request Body**:
+```json
+{
+  "amount": 25.00,
+  "description": "Message charges for campaign XYZ"
+}
+```
+
+**cURL**:
+```bash
+curl -X POST http://localhost:3000/user-service/api/wallet/deduct \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." \
+  -H "Content-Type: application/json" \
+  -d '{
+    "amount": 25.00,
+    "description": "Message charges for campaign XYZ"
+  }'
+```
+
+**Response (200 OK)**:
+```json
+{
+  "message": "Balance deducted successfully",
+  "transaction": {
+    "id": 2,
+    "type": "debit",
+    "amount": 25.00,
+    "balanceBefore": 100.50,
+    "balanceAfter": 75.50,
+    "description": "Message charges for campaign XYZ"
+  },
+  "currentBalance": 75.50
+}
+```
+
+**Possible Errors**:
+- `400`: Amount must be greater than 0
+- `400`: Insufficient balance
+- `401`: No token provided
+- `403`: Invalid or expired token
+- `500`: Failed to update balance
+
+---
+
+#### 14. Get Balance (Protected)
+
+Retrieve current wallet balance and message pricing.
+
+**Endpoint**: `GET /api/wallet/balance`
+
+**Headers**:
+```
+Authorization: Bearer <JWT_TOKEN>
+```
+
+**cURL**:
+```bash
+curl -X GET http://localhost:3000/user-service/api/wallet/balance \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+```
+
+**Response (200 OK)**:
+```json
+{
+  "balance": 75.50,
+  "pricing": {
+    "marketingMessage": 0.10,
+    "utilityMessage": 0.05,
+    "authMessage": 0.05
+  }
+}
+```
+
+**Possible Errors**:
+- `401`: No token provided
+- `403`: Invalid or expired token
+- `404`: User not found
+
+---
+
+#### 15. Get Transaction History (Protected)
+
+Retrieve wallet transaction history with pagination.
+
+**Endpoint**: `GET /api/wallet/transactions?page=1&limit=50`
+
+**Headers**:
+```
+Authorization: Bearer <JWT_TOKEN>
+```
+
+**Query Parameters**:
+- `page` (optional): Page number (default: 1)
+- `limit` (optional): Items per page (default: 50)
+
+**cURL**:
+```bash
+curl -X GET "http://localhost:3000/user-service/api/wallet/transactions?page=1&limit=10" \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+```
+
+**Response (200 OK)**:
+```json
+{
+  "transactions": [
+    {
+      "id": 2,
+      "type": "debit",
+      "amount": 25.00,
+      "balanceBefore": 100.50,
+      "balanceAfter": 75.50,
+      "description": "Message charges for campaign XYZ",
+      "createdAt": "2025-12-22T10:30:00.000Z"
+    },
+    {
+      "id": 1,
+      "type": "credit",
+      "amount": 100.50,
+      "balanceBefore": 0.00,
+      "balanceAfter": 100.50,
+      "description": "Initial deposit",
+      "createdAt": "2025-12-22T10:00:00.000Z"
+    }
+  ],
+  "pagination": {
+    "currentPage": 1,
+    "totalPages": 1,
+    "totalCount": 2,
+    "limit": 10
+  }
+}
+```
+
+**Possible Errors**:
+- `401`: No token provided
+- `403`: Invalid or expired token
+- `500`: Internal server error
+
+---
+
+#### 16. Update Message Prices (Protected)
+
+Update per-message pricing for different message types.
+
+**Endpoint**: `PUT /api/wallet/pricing`
+
+**Headers**:
+```
+Authorization: Bearer <JWT_TOKEN>
+Content-Type: application/json
+```
+
+**Request Body**:
+```json
+{
+  "marketingMessagePrice": 0.12,
+  "utilityMessagePrice": 0.06,
+  "authMessagePrice": 0.04
+}
+```
+
+**Note**: All fields are optional. You can update one, two, or all three prices.
+
+**cURL**:
+```bash
+curl -X PUT http://localhost:3000/user-service/api/wallet/pricing \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." \
+  -H "Content-Type: application/json" \
+  -d '{
+    "marketingMessagePrice": 0.12,
+    "utilityMessagePrice": 0.06,
+    "authMessagePrice": 0.04
+  }'
+```
+
+**Response (200 OK)**:
+```json
+{
+  "message": "Message prices updated successfully",
+  "pricing": {
+    "marketingMessage": 0.12,
+    "utilityMessage": 0.06,
+    "authMessage": 0.04
+  }
+}
+```
+
+**Possible Errors**:
+- `400`: At least one message price must be provided
+- `400`: Price must be non-negative
+- `401`: No token provided
+- `403`: Invalid or expired token
+- `500`: Failed to update message prices
+
+---
+
+### Health Check Endpoint
+
+#### 17. Health Check (Public)
+
+Check if the API is running.
+
+**Endpoint**: `GET /health`
+
+**cURL**:
+```bash
+curl http://localhost:3000/user-service/health
+```
+
+**Response (200 OK)**:
+```json
+{
+  "status": "OK"
+}
+```
+
+---
+
+## Error Responses
+
+### Standard Error Format
+
+All error responses follow this format:
+
+```json
+{
+  "error": "Error message describing what went wrong"
+}
+```
+
+### Common HTTP Status Codes
+
+| Status | Code | Description |
+|--------|------|-------------|
+| 200 | OK | Request successful |
+| 201 | Created | Resource created successfully |
+| 400 | Bad Request | Missing or invalid parameters |
+| 401 | Unauthorized | Missing authentication token |
+| 403 | Forbidden | Invalid or expired token |
+| 404 | Not Found | Resource not found |
+| 409 | Conflict | Resource already exists |
+| 429 | Too Many Requests | Rate limit exceeded |
+| 500 | Internal Server Error | Server error |
+
+### Specific Error Examples
+
+**Missing Required Fields (400)**:
+```json
+{
+  "error": "Email, password, and name are required"
+}
+```
+
+**User Already Exists (409)**:
+```json
+{
+  "error": "User already exists"
+}
+```
+
+**Invalid Credentials (401)**:
+```json
+{
+  "error": "Invalid credentials"
+}
+```
+
+**No Token Provided (401)**:
+```json
+{
+  "error": "No token provided"
+}
+```
+
+**Invalid Token (403)**:
+```json
+{
+  "error": "Invalid or expired token"
+}
+```
+
+**Rate Limit Exceeded (429)**:
+```json
+{
+  "error": "Too many password reset attempts. Please try again in 18 hour(s)",
+  "retryAfter": 18
+}
+```
+
+---
+
+## Complete Workflow Examples
+
+### Example 1: Complete User Registration and Profile Setup
+
+```bash
+# Step 1: Register new user
+curl -X POST http://localhost:3000/user-service/api/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "newuser@example.com",
+    "password": "SecurePass123!",
+    "name": "New User"
+  }'
+# Response includes: token, user data
+
+# Step 2: Store token for future requests
+TOKEN="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+
+# Step 3: Get user profile
+curl -X GET http://localhost:3000/user-service/api/auth/profile \
+  -H "Authorization: Bearer $TOKEN"
+
+# Step 4: Update profile
+curl -X PUT http://localhost:3000/user-service/api/auth/profile \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Updated Name",
+    "email": "newemail@example.com"
+  }'
+
+# Step 5: Add organization details
+curl -X POST http://localhost:3000/user-service/api/organization/details \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "organizationName": "My Company",
+    "city": "Delhi",
+    "country": "India"
+  }'
+
+# Step 6: Get organization details
+curl -X GET http://localhost:3000/user-service/api/organization/details \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+---
+
+### Example 2: Password Reset Flow
+
+```bash
+# Step 1: Request password reset
+curl -X POST http://localhost:3000/user-service/api/auth/forgot-password \
+  -H "Content-Type: application/json" \
+  -d '{"email": "user@example.com"}'
+# Response includes: resetToken, expiresAt
+
+# Step 2: Store reset token
+RESET_TOKEN="a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6"
+
+# Step 3: Reset password with token
+curl -X POST http://localhost:3000/user-service/api/auth/reset-password \
+  -H "Content-Type: application/json" \
+  -d '{
+    "token": "'$RESET_TOKEN'",
+    "newPassword": "NewSecurePassword456!"
+  }'
+
+# Step 4: Login with new password
+curl -X POST http://localhost:3000/user-service/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "user@example.com",
+    "password": "NewSecurePassword456!"
+  }'
+```
+
+---
+
+### Example 3: Account Management
+
+```bash
+# Store token from login
+TOKEN="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+
+# Step 1: Change password (when logged in)
+curl -X POST http://localhost:3000/user-service/api/auth/change-password \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "currentPassword": "OldPassword123!",
+    "newPassword": "NewPassword456!"
+  }'
+
+# Step 2: Delete account (requires password confirmation)
+curl -X DELETE http://localhost:3000/user-service/api/auth/account \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"password": "NewPassword456!"}'
+```
+
+---
+
+## Testing Guide
+
+### Using Postman
+
+1. **Import Collection**
+   - Open Postman
+   - Create new collection: "User Service API"
+
+2. **Set Environment Variables**
+   - Create environment: "User Service"
+   - Variable: `base_url` = `http://localhost:3000/user-service`
+   - Variable: `token` = (will be filled after login)
+
+3. **Create Requests**
+   - Create requests for each endpoint
+   - Use `{{base_url}}` and `{{token}}` in URLs and headers
+
+4. **Test Workflow**
+   - Register → Login → Get Profile → Update Profile
+   - Add Organization → Get Organization
+   - Change Password → Forgot Password → Reset Password
+
+### Using cURL
+
+See examples above or use provided cURL commands for each endpoint.
+
+### Using Thunder Client (VS Code)
+
+1. Install Thunder Client extension
+2. Create collections and requests
+3. Use environment variables similar to Postman
+
+---
+
+## Rate Limiting
+
+### Password Reset Limits
+
+- **Max Attempts**: 3 per 24 hours
+- **Response Code**: 429 Too Many Requests
+- **Retry After**: Specified in response
+
+Example response when limit exceeded:
+```json
+{
+  "error": "Too many password reset attempts. Please try again in 18 hour(s)",
+  "retryAfter": 18
+}
+```
+
+---
+
+## Configuration
+
+### Environment Variables (.env)
+
+```env
+# Server
+PORT=3000
+
+# Database
+DB_HOST=localhost
+DB_USER=root
+DB_PASSWORD=
+DB_NAME=user_service
+DB_PORT=3307
+
+# JWT
+JWT_SECRET=your_super_secret_key
+JWT_EXPIRY=24h
+
+# Rate Limiting
+MAX_RESET_ATTEMPTS=3
+```
+
+---
+
+## Field Reference
+
+### User Fields
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| email | String | Yes | User's email address |
+| password | String | Yes | User's password (8+ characters recommended) |
+| name | String | Yes | User's full name |
+
+### Organization Fields
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| organizationName | String | Yes | Name of organization/business |
+| physicalAddress | String | No | Street address |
+| city | String | No | City name |
+| state | String | No | State/Province |
+| zipCode | String | No | Postal code |
+| country | String | No | Country name |
+
+---
+
+## Best Practices
+
+1. **Token Management**
+   - Store tokens securely (httpOnly cookies or secure storage)
+   - Include token in all protected endpoint requests
+   - Refresh token before expiry if implementing refresh tokens
+
+2. **Password Security**
+   - Use strong passwords (8+ characters with mixed case)
+   - Never share tokens or passwords
+   - Use HTTPS in production
+
+3. **Error Handling**
+   - Check HTTP status codes
+   - Display user-friendly error messages
+   - Log errors for debugging
+
+4. **Rate Limiting**
+   - Respect 429 status codes
+   - Wait specified time before retrying
+   - Implement client-side rate limiting
+
+5. **Data Validation**
+   - Validate all inputs on client side before sending
+   - Handle validation errors gracefully
+   - Don't expose sensitive data in error messages
+
+---
+
+## Support
+
+For issues or questions:
+1. Check the documentation above
+2. Review error messages and HTTP status codes
+3. Check database schema (DATABASE_SCHEMA.md)
+4. Review migration files if database issues occur
+
+---
+
+## API Summary
+
+| Method | Endpoint | Purpose | Auth | Rate Limited |
+|--------|----------|---------|------|--------------|
+| POST | `/api/auth/register` | Register user | No | No |
+| POST | `/api/auth/login` | Login user | No | No |
+| GET | `/api/auth/profile` | Get profile | Yes | No |
+| PUT | `/api/auth/profile` | Update profile | Yes | No |
+| POST | `/api/auth/change-password` | Change password | Yes | No |
+| POST | `/api/auth/forgot-password` | Request reset | No | Yes |
+| POST | `/api/auth/reset-password` | Reset password | No | No |
+| DELETE | `/api/auth/account` | Delete account | Yes | No |
+| POST | `/api/auth/meta-business-account` | Update Meta Business Account ID | Yes | No |
+| POST | `/api/organization/details` | Create/Update org | Yes | No |
+| GET | `/api/organization/details` | Get org details | Yes | No |
+| POST | `/api/wallet/add` | Add wallet balance | Yes | No |
+| POST | `/api/wallet/deduct` | Deduct wallet balance | Yes | No |
+| GET | `/api/wallet/balance` | Get wallet balance | Yes | No |
+| GET | `/api/wallet/transactions` | Get transaction history | Yes | No |
+| PUT | `/api/wallet/pricing` | Update message prices | Yes | No |
+| GET | `/health` | Health check | No | No |
+
+---
+
+## Quick Reference - All API Routes
+
+### 1. POST `/api/auth/register` - Register User
+```json
+// Request
+{
+  "email": "john@example.com",
+  "password": "Password123!",
+  "name": "John Doe"
+}
+
+// Response (201)
+{
+  "message": "User registered successfully",
+  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "user": { "id": 1, "email": "john@example.com", "name": "John Doe" }
+}
+```
+
+### 2. POST `/api/auth/login` - Login User
+```json
+// Request
+{
+  "email": "john@example.com",
+  "password": "Password123!"
+}
+
+// Response (200)
+{
+  "message": "Login successful",
+  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "user": { "id": 1, "email": "john@example.com", "name": "John Doe" }
+}
+```
+
+### 3. GET `/api/auth/profile` - Get User Profile (Auth Required)
+```json
+// Response (200)
+{
+  "user": {
+    "id": 1,
+    "email": "john@example.com",
+    "name": "John Doe",
+    "metaBusinessAccountId": "123456789012345"
+  },
+  "wallet": {
+    "balance": 100.50,
+    "pricing": {
+      "marketingMessage": 0.10,
+      "utilityMessage": 0.05,
+      "authMessage": 0.05
+    }
+  },
+  "organization": {
+    "id": 1,
+    "organizationName": "Nyife",
+    "physicalAddress": "123 Business Street",
+    "city": "Delhi",
+    "state": "Delhi",
+    "zipCode": "110063",
+    "country": "India",
+    "createdAt": "2025-12-16T10:30:00.000Z",
+    "updatedAt": "2025-12-16T10:30:00.000Z"
+  }
+}
+```
+
+### 4. PUT `/api/auth/profile` - Update Profile (Auth Required)
+```json
+// Request
+{
+  "name": "John Smith",
+  "email": "john.smith@example.com"
+}
+
+// Response (200)
+{
+  "message": "Profile updated successfully",
+  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "user": { "id": 1, "name": "John Smith", "email": "john.smith@example.com" }
+}
+```
+
+### 5. POST `/api/auth/change-password` - Change Password (Auth Required)
+```json
+// Request
+{
+  "currentPassword": "Password123!",
+  "newPassword": "NewPassword456!"
+}
+
+// Response (200)
+{
+  "message": "Password changed successfully"
+}
+```
+
+### 6. POST `/api/auth/forgot-password` - Forgot Password
+```json
+// Request
+{
+  "email": "john@example.com"
+}
+
+// Response (200)
+{
+  "message": "Password reset token generated",
+  "resetToken": "a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6",
+  "expiresAt": "2025-12-16T15:30:00.000Z"
+}
+```
+
+### 7. POST `/api/auth/reset-password` - Reset Password
+```json
+// Request
+{
+  "token": "a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6",
+  "newPassword": "BrandNewPassword789!"
+}
+
+// Response (200)
+{
+  "message": "Password reset successfully"
+}
+```
+
+### 8. DELETE `/api/auth/account` - Delete Account (Auth Required)
+```json
+// Request
+{
+  "password": "Password123!"
+}
+
+// Response (200)
+{
+  "message": "Account deleted successfully"
+}
+```
+
+### 9. POST `/api/auth/meta-business-account` - Update Meta Business Account ID (Auth Required)
+```json
+// Request
+{
+  "metaBusinessAccountId": "123456789012345"
+}
+
+// Response (200)
+{
+  "message": "Meta Business Account ID updated successfully",
+  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "user": {
+    "id": 1,
+    "email": "john@example.com",
+    "name": "John Doe",
+    "metaBusinessAccountId": "123456789012345"
+  }
+}
+```
+
+### 10. POST `/api/organization/details` - Create/Update Organization (Auth Required)
+```json
+// Request
+{
+  "organizationName": "Nyife",
+  "physicalAddress": "123 Business Street",
+  "city": "Delhi",
+  "state": "Delhi",
+  "zipCode": "110063",
+  "country": "India"
+}
+
+// Response (201 Created / 200 Updated)
+{
+  "message": "Organization details added successfully",
+  "organizationDetails": {
+    "id": 1,
+    "userId": 1,
+    "organizationName": "Nyife",
+    "physicalAddress": "123 Business Street",
+    "city": "Delhi",
+    "state": "Delhi",
+    "zipCode": "110063",
+    "country": "India"
+  }
+}
+```
+
+### 11. GET `/api/organization/details` - Get Organization Details (Auth Required)
+```json
+// Response (200)
+{
+  "organizationDetails": {
+    "id": 1,
+    "userId": 1,
+    "organizationName": "Nyife",
+    "physicalAddress": "123 Business Street",
+    "city": "Delhi",
+    "state": "Delhi",
+    "zipCode": "110063",
+    "country": "India",
+    "createdAt": "2025-12-16T10:30:00.000Z",
+    "updatedAt": "2025-12-16T10:30:00.000Z"
+  }
+}
+```
+
+### 12. POST `/api/wallet/add` - Add Wallet Balance (Auth Required)
+```json
+// Request
+{
+  "amount": 100.50,
+  "description": "Initial deposit"
+}
+
+// Response (200)
+{
+  "message": "Balance added successfully",
+  "transaction": {
+    "id": 1,
+    "type": "credit",
+    "amount": 100.50,
+    "balanceBefore": 0.00,
+    "balanceAfter": 100.50,
+    "description": "Initial deposit"
+  },
+  "currentBalance": 100.50
+}
+```
+
+### 13. POST `/api/wallet/deduct` - Deduct Wallet Balance (Auth Required)
+```json
+// Request
+{
+  "amount": 25.00,
+  "description": "Message charges for campaign XYZ"
+}
+
+// Response (200)
+{
+  "message": "Balance deducted successfully",
+  "transaction": {
+    "id": 2,
+    "type": "debit",
+    "amount": 25.00,
+    "balanceBefore": 100.50,
+    "balanceAfter": 75.50,
+    "description": "Message charges for campaign XYZ"
+  },
+  "currentBalance": 75.50
+}
+
+// Response (400 - Insufficient Balance)
+{
+  "error": "Insufficient balance",
+  "currentBalance": 10.00,
+  "required": 25.00
+}
+```
+
+### 14. GET `/api/wallet/balance` - Get Wallet Balance (Auth Required)
+```json
+// Response (200)
+{
+  "balance": 75.50,
+  "pricing": {
+    "marketingMessage": 0.10,
+    "utilityMessage": 0.05,
+    "authMessage": 0.05
+  }
+}
+```
+
+### 15. GET `/api/wallet/transactions?page=1&limit=10` - Get Transaction History (Auth Required)
+```json
+// Response (200)
+{
+  "transactions": [
+    {
+      "id": 2,
+      "type": "debit",
+      "amount": 25.00,
+      "balanceBefore": 100.50,
+      "balanceAfter": 75.50,
+      "description": "Message charges for campaign XYZ",
+      "createdAt": "2025-12-22T10:30:00.000Z"
+    },
+    {
+      "id": 1,
+      "type": "credit",
+      "amount": 100.50,
+      "balanceBefore": 0.00,
+      "balanceAfter": 100.50,
+      "description": "Initial deposit",
+      "createdAt": "2025-12-22T10:00:00.000Z"
+    }
+  ],
+  "pagination": {
+    "currentPage": 1,
+    "totalPages": 1,
+    "totalCount": 2,
+    "limit": 10
+  }
+}
+```
+
+### 16. PUT `/api/wallet/pricing` - Update Message Prices (Auth Required)
+```json
+// Request (all fields optional, at least one required)
+{
+  "marketingMessagePrice": 0.12,
+  "utilityMessagePrice": 0.06,
+  "authMessagePrice": 0.04
+}
+
+// Response (200)
+{
+  "message": "Message prices updated successfully",
+  "pricing": {
+    "marketingMessage": 0.12,
+    "utilityMessage": 0.06,
+    "authMessage": 0.04
+  }
+}
+```
+
+### 17. GET `/health` - Health Check
+```json
+// Response (200)
+{
+  "status": "OK"
+}
+```
