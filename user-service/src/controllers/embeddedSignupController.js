@@ -168,11 +168,21 @@ class EmbeddedSignupController {
         }
       });
 
-      // Subscribe WABA to webhooks
-      await this.subscribeToWebhooks(wabaId, accessToken);
+      // Try to subscribe WABA to webhooks (non-blocking - can fail)
+      try {
+        await this.subscribeToWebhooks(wabaId, accessToken);
+      } catch (webhookError) {
+        console.warn('Webhook subscription skipped:', webhookError.message);
+        // Continue - webhook can be configured later
+      }
 
-      // Register phone number for messaging
-      await this.registerPhoneNumber(phoneNumberId, accessToken);
+      // Try to register phone number for messaging (non-blocking - may already be registered)
+      try {
+        await this.registerPhoneNumber(phoneNumberId, accessToken);
+      } catch (registerError) {
+        console.warn('Phone registration skipped:', registerError.message);
+        // Continue - phone may already be registered
+      }
 
       // Save to database
       await this.saveWabaDetails(
@@ -338,7 +348,7 @@ class EmbeddedSignupController {
    */
   static async getConnectedAccounts(req, res) {
     try {
-      const { userId } = req.user;
+      const userId = req.user?.id || req.user?.userId;
 
       const connection = await pool.getConnection();
       try {
@@ -406,7 +416,7 @@ class EmbeddedSignupController {
   static async disconnectAccount(req, res) {
     try {
       const { wabaId } = req.params;
-      const { userId } = req.user;
+      const userId = req.user?.id || req.user?.userId;
 
       const connection = await pool.getConnection();
       try {
@@ -463,7 +473,7 @@ class EmbeddedSignupController {
   static async refreshToken(req, res) {
     try {
       const { wabaId } = req.params;
-      const { userId } = req.user;
+      const userId = req.user?.id || req.user?.userId;
       const config = getEmbeddedSignupConfig();
 
       const connection = await pool.getConnection();
@@ -525,7 +535,7 @@ class EmbeddedSignupController {
   static async getPhoneNumberStatus(req, res) {
     try {
       const { phoneNumberId } = req.params;
-      const { userId } = req.user;
+      const userId = req.user?.id || req.user?.userId;
 
       const connection = await pool.getConnection();
       try {
@@ -584,7 +594,7 @@ class EmbeddedSignupController {
   static async initializeBusinessVerification(req, res) {
     try {
       const { wabaId } = req.params;
-      const { userId } = req.user;
+      const userId = req.user?.id || req.user?.userId;
 
       const connection = await pool.getConnection();
       try {
@@ -713,7 +723,7 @@ class EmbeddedSignupController {
   static async getBusinessProfile(req, res) {
     try {
       const { phoneNumberId } = req.params;
-      const { userId } = req.user;
+      const userId = req.user?.id || req.user?.userId;
 
       const connection = await pool.getConnection();
       try {
@@ -780,7 +790,7 @@ class EmbeddedSignupController {
     try {
       const { phoneNumberId } = req.params;
       const { about, address, description, email, websites, industry, profilePictureUrl } = req.body;
-      const { userId } = req.user;
+      const userId = req.user?.id || req.user?.userId;
 
       const connection = await pool.getConnection();
       try {
@@ -979,7 +989,7 @@ class EmbeddedSignupController {
   static async getAccountReviewStatus(req, res) {
     try {
       const { wabaId } = req.params;
-      const { userId } = req.user;
+      const userId = req.user?.id || req.user?.userId;
 
       const connection = await pool.getConnection();
       try {
@@ -1046,7 +1056,7 @@ class EmbeddedSignupController {
   static async getPhoneNumberDetails(req, res) {
     try {
       const { phoneNumberId } = req.params;
-      const { userId } = req.user;
+      const userId = req.user?.id || req.user?.userId;
 
       const connection = await pool.getConnection();
       try {
@@ -1129,8 +1139,16 @@ class EmbeddedSignupController {
   static async handleExchangeCode(req, res) {
     try {
       const { code } = req.body;
-      const { userId, organizationId } = req.user;
+      const userId = req.user?.id || req.user?.userId;
+      const organizationId = req.user?.organizationId || req.user?.organization_id || null;
       const config = getEmbeddedSignupConfig();
+
+      if (!userId) {
+        return res.status(401).json({
+          success: false,
+          error: 'User not authenticated'
+        });
+      }
 
       if (!code) {
         return res.status(400).json({
@@ -1138,6 +1156,8 @@ class EmbeddedSignupController {
           error: 'Authorization code is required'
         });
       }
+
+      console.log('Exchange code for user:', { userId, organizationId });
 
       // 1. Exchange code for access token
       const tokenResponse = await axios.get(`${META_GRAPH_URL}/oauth/access_token`, {
@@ -1223,21 +1243,36 @@ class EmbeddedSignupController {
         console.warn('Phone registration warning:', regError.response?.data?.error?.message);
       }
 
-      // 7. Subscribe to WABA webhooks
-      await axios.post(`${META_GRAPH_URL}/${wabaId}/subscribed_apps`, null, {
-        params: { access_token: accessToken }
-      });
+      // 7. Subscribe to WABA webhooks (non-blocking - webhook can be configured later)
+      let webhookSubscribed = false;
+      try {
+        await axios.post(`${META_GRAPH_URL}/${wabaId}/subscribed_apps`, null, {
+          params: { access_token: accessToken }
+        });
+        webhookSubscribed = true;
+        console.log('WABA webhook subscription successful');
+      } catch (webhookError) {
+        console.warn('Webhook subscription skipped:', webhookError.response?.data?.error?.message || webhookError.message);
+        // Continue - webhook can be configured manually later
+      }
 
-      // 8. Override webhook callback URL
-      const webhookUrl = `${process.env.WEBHOOK_BASE_URL}/webhook/whatsapp/${organizationId}`;
-      const webhookToken = `org_${organizationId}`;
+      // 8. Override webhook callback URL (only if subscription succeeded)
+      if (webhookSubscribed && process.env.WEBHOOK_BASE_URL) {
+        try {
+          const webhookUrl = `${process.env.WEBHOOK_BASE_URL}/webhook/whatsapp/${organizationId}`;
+          const webhookToken = `org_${organizationId}`;
 
-      await axios.post(`${META_GRAPH_URL}/${wabaId}/subscribed_apps`, {
-        override_callback_uri: webhookUrl,
-        verify_token: webhookToken
-      }, {
-        params: { access_token: accessToken }
-      });
+          await axios.post(`${META_GRAPH_URL}/${wabaId}/subscribed_apps`, {
+            override_callback_uri: webhookUrl,
+            verify_token: webhookToken
+          }, {
+            params: { access_token: accessToken }
+          });
+          console.log('Webhook callback URL override successful');
+        } catch (overrideError) {
+          console.warn('Webhook override skipped:', overrideError.response?.data?.error?.message || overrideError.message);
+        }
+      }
 
       // 9. Get business profile
       let businessProfile = {};
@@ -1254,38 +1289,42 @@ class EmbeddedSignupController {
       }
 
       // 10. Save to database
+      const webhookUrl = process.env.WEBHOOK_BASE_URL ? `${process.env.WEBHOOK_BASE_URL}/webhook/whatsapp/${organizationId}` : null;
+      const webhookToken = `org_${organizationId}`;
+      
       const connection = await pool.getConnection();
       try {
         await connection.beginTransaction();
 
-        // Insert/Update WABA account
+        // Insert/Update WABA account - use null for undefined values
         await connection.execute(`
           INSERT INTO waba_accounts (
             user_id, organization_id, waba_id, business_name, currency,
             timezone_id, template_namespace, review_status, business_verification_status,
             access_token, webhook_subscribed, status, created_at, updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE, 'ACTIVE', NOW(), NOW())
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', NOW(), NOW())
           ON DUPLICATE KEY UPDATE
             business_name = VALUES(business_name),
             access_token = VALUES(access_token),
             review_status = VALUES(review_status),
             business_verification_status = VALUES(business_verification_status),
-            webhook_subscribed = TRUE,
+            webhook_subscribed = VALUES(webhook_subscribed),
             updated_at = NOW()
         `, [
           userId,
-          organizationId,
+          organizationId || null,
           wabaId,
-          accountResponse.data.name,
-          accountResponse.data.currency,
-          accountResponse.data.timezone_id,
-          accountResponse.data.message_template_namespace,
-          accountResponse.data.account_review_status,
-          accountResponse.data.business_verification_status,
-          accessToken
+          accountResponse.data.name || null,
+          accountResponse.data.currency || null,
+          accountResponse.data.timezone_id || null,
+          accountResponse.data.message_template_namespace || null,
+          accountResponse.data.account_review_status || null,
+          accountResponse.data.business_verification_status || null,
+          accessToken,
+          webhookSubscribed
         ]);
 
-        // Insert/Update phone number
+        // Insert/Update phone number - use null for undefined values
         await connection.execute(`
           INSERT INTO phone_numbers (
             waba_id, phone_number_id, display_phone_number, verified_name,
@@ -1302,24 +1341,26 @@ class EmbeddedSignupController {
         `, [
           wabaId,
           phoneData.id,
-          phoneData.display_phone_number,
-          phoneData.verified_name,
-          phoneData.quality_rating,
-          phoneData.messaging_limit_tier,
-          phoneData.name_status,
-          phoneStatusResponse.data.code_verification_status
+          phoneData.display_phone_number || null,
+          phoneData.verified_name || null,
+          phoneData.quality_rating || null,
+          phoneData.messaging_limit_tier || null,
+          phoneData.name_status || null,
+          phoneStatusResponse.data?.code_verification_status || null
         ]);
 
-        // Save webhook subscription
-        await connection.execute(`
-          INSERT INTO webhook_subscriptions (waba_id, webhook_url, verify_token, is_active)
-          VALUES (?, ?, ?, TRUE)
-          ON DUPLICATE KEY UPDATE
-            webhook_url = VALUES(webhook_url),
-            verify_token = VALUES(verify_token),
-            is_active = TRUE,
-            updated_at = NOW()
-        `, [wabaId, webhookUrl, webhookToken]);
+        // Save webhook subscription only if URL exists
+        if (webhookUrl) {
+          await connection.execute(`
+            INSERT INTO webhook_subscriptions (waba_id, webhook_url, verify_token, is_active)
+            VALUES (?, ?, ?, TRUE)
+            ON DUPLICATE KEY UPDATE
+              webhook_url = VALUES(webhook_url),
+              verify_token = VALUES(verify_token),
+              is_active = TRUE,
+              updated_at = NOW()
+          `, [wabaId, webhookUrl, webhookToken]);
+        }
 
         // Update user's default WABA
         await connection.execute(
@@ -1381,7 +1422,7 @@ class EmbeddedSignupController {
   static async refreshWabaData(req, res) {
     try {
       const { wabaId } = req.params;
-      const { userId } = req.user;
+      const userId = req.user?.id || req.user?.userId;
 
       const connection = await pool.getConnection();
       try {

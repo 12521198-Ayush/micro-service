@@ -6,7 +6,7 @@ const embeddedSignupService = {
    * @returns {Promise} Session data with FB SDK config
    */
   initializeSignup: async () => {
-    const response = await api.post('/user-service/api/embedded-signup/initialize')
+    const response = await api.post('/api/embedded-signup/initialize')
     return response.data
   },
 
@@ -16,7 +16,7 @@ const embeddedSignupService = {
    * @returns {Promise}
    */
   handleCallback: async (data) => {
-    const response = await api.post('/user-service/api/embedded-signup/callback', data)
+    const response = await api.post('/api/embedded-signup/callback', data)
     return response.data
   },
 
@@ -26,7 +26,7 @@ const embeddedSignupService = {
    * @returns {Promise}
    */
   exchangeCode: async (data) => {
-    const response = await api.post('/user-service/api/embedded-signup/exchange-code', data)
+    const response = await api.post('/api/embedded-signup/exchange-code', data)
     return response.data
   },
 
@@ -36,7 +36,7 @@ const embeddedSignupService = {
    * @returns {Promise}
    */
   completeSignup: async (data) => {
-    const response = await api.post('/user-service/api/embedded-signup/complete', data)
+    const response = await api.post('/api/embedded-signup/complete', data)
     return response.data
   },
 
@@ -45,7 +45,7 @@ const embeddedSignupService = {
    * @returns {Promise}
    */
   getConnectedAccounts: async () => {
-    const response = await api.get('/user-service/api/embedded-signup/accounts')
+    const response = await api.get('/api/embedded-signup/accounts')
     return response.data
   },
 
@@ -55,7 +55,7 @@ const embeddedSignupService = {
    * @returns {Promise}
    */
   disconnectAccount: async (wabaId) => {
-    const response = await api.delete(`/user-service/api/embedded-signup/accounts/${wabaId}`)
+    const response = await api.delete(`/api/embedded-signup/accounts/${wabaId}`)
     return response.data
   },
 
@@ -65,7 +65,7 @@ const embeddedSignupService = {
    * @returns {Promise}
    */
   refreshToken: async (wabaId) => {
-    const response = await api.post(`/user-service/api/embedded-signup/accounts/${wabaId}/refresh-token`)
+    const response = await api.post(`/api/embedded-signup/accounts/${wabaId}/refresh-token`)
     return response.data
   },
 
@@ -75,7 +75,7 @@ const embeddedSignupService = {
    * @returns {Promise}
    */
   refreshWabaData: async (wabaId) => {
-    const response = await api.post(`/user-service/api/embedded-signup/accounts/${wabaId}/refresh`)
+    const response = await api.post(`/api/embedded-signup/accounts/${wabaId}/refresh`)
     return response.data
   },
 
@@ -85,7 +85,7 @@ const embeddedSignupService = {
    * @returns {Promise}
    */
   getAccountReviewStatus: async (wabaId) => {
-    const response = await api.get(`/user-service/api/embedded-signup/accounts/${wabaId}/review-status`)
+    const response = await api.get(`/api/embedded-signup/accounts/${wabaId}/review-status`)
     return response.data
   },
 
@@ -96,7 +96,7 @@ const embeddedSignupService = {
    * @returns {Promise}
    */
   overrideWebhookCallback: async (wabaId, data) => {
-    const response = await api.post(`/user-service/api/embedded-signup/accounts/${wabaId}/webhook`, data)
+    const response = await api.post(`/api/embedded-signup/accounts/${wabaId}/webhook`, data)
     return response.data
   },
 
@@ -106,7 +106,7 @@ const embeddedSignupService = {
    * @returns {Promise}
    */
   syncTemplates: async (wabaId) => {
-    const response = await api.post(`/user-service/api/embedded-signup/accounts/${wabaId}/sync-templates`)
+    const response = await api.post(`/api/embedded-signup/accounts/${wabaId}/sync-templates`)
     return response.data
   },
 
@@ -116,7 +116,7 @@ const embeddedSignupService = {
    * @returns {Promise}
    */
   getPhoneNumberStatus: async (phoneNumberId) => {
-    const response = await api.get(`/user-service/api/embedded-signup/phone/${phoneNumberId}/status`)
+    const response = await api.get(`/api/embedded-signup/phone/${phoneNumberId}/status`)
     return response.data
   },
 
@@ -126,7 +126,7 @@ const embeddedSignupService = {
    * @returns {Promise}
    */
   getPhoneNumberDetails: async (phoneNumberId) => {
-    const response = await api.get(`/user-service/api/embedded-signup/phone/${phoneNumberId}/details`)
+    const response = await api.get(`/api/embedded-signup/phone/${phoneNumberId}/details`)
     return response.data
   },
 
@@ -136,7 +136,7 @@ const embeddedSignupService = {
    * @returns {Promise}
    */
   getBusinessProfile: async (phoneNumberId) => {
-    const response = await api.get(`/user-service/api/embedded-signup/phone/${phoneNumberId}/business-profile`)
+    const response = await api.get(`/api/embedded-signup/phone/${phoneNumberId}/business-profile`)
     return response.data
   },
 
@@ -147,7 +147,7 @@ const embeddedSignupService = {
    * @returns {Promise}
    */
   updateBusinessProfile: async (phoneNumberId, data) => {
-    const response = await api.post(`/user-service/api/embedded-signup/phone/${phoneNumberId}/business-profile`, data)
+    const response = await api.post(`/api/embedded-signup/phone/${phoneNumberId}/business-profile`, data)
     return response.data
   },
 
@@ -157,7 +157,7 @@ const embeddedSignupService = {
    * @returns {Promise}
    */
   getBusinessVerification: async (wabaId) => {
-    const response = await api.get(`/user-service/api/embedded-signup/accounts/${wabaId}/verification`)
+    const response = await api.get(`/api/embedded-signup/accounts/${wabaId}/verification`)
     return response.data
   }
 }

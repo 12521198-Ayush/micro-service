@@ -13,6 +13,7 @@ export const getCurrentUsage = async (req, res) => {
       return res.status(404).json({
         success: false,
         error: 'No usage data found',
+        data:req?.user?.id
       });
     }
 

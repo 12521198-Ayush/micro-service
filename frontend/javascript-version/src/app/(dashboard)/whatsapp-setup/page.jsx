@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
+import { useSession } from 'next-auth/react'
 import Card from '@mui/material/Card'
 import CardHeader from '@mui/material/CardHeader'
 import CardContent from '@mui/material/CardContent'
@@ -53,6 +54,7 @@ const industryOptions = [
 ]
 
 const WhatsAppSetup = () => {
+  const { data: session, status } = useSession()
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const [success, setSuccess] = useState(null)
@@ -73,9 +75,20 @@ const WhatsAppSetup = () => {
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' })
   const [syncingTemplates, setSyncingTemplates] = useState(false)
   const [refreshingData, setRefreshingData] = useState(false)
+  const [tokenSynced, setTokenSynced] = useState(false)
+
+  // Sync NextAuth token to localStorage for API calls
+  useEffect(() => {
+    if (session?.accessToken) {
+      localStorage.setItem('token', session.accessToken)
+      setTokenSynced(true)
+    }
+  }, [session?.accessToken])
 
   // Load connected accounts
   const loadAccounts = useCallback(async () => {
+    if (!session?.accessToken || !tokenSynced) return
+    
     try {
       setLoading(true)
       const response = await embeddedSignupService.getConnectedAccounts()
@@ -88,7 +101,7 @@ const WhatsAppSetup = () => {
     } finally {
       setLoading(false)
     }
-  }, [selectedAccount])
+  }, [selectedAccount, session?.accessToken, tokenSynced])
 
   useEffect(() => {
     loadAccounts()
@@ -97,7 +110,7 @@ const WhatsAppSetup = () => {
   // Initialize Facebook SDK
   useEffect(() => {
     // Load Facebook SDK
-    if (!window.FB) {
+    if (typeof window !== 'undefined' && !window.FB) {
       window.fbAsyncInit = function() {
         window.FB.init({
           appId: process.env.NEXT_PUBLIC_META_APP_ID,
@@ -105,6 +118,7 @@ const WhatsAppSetup = () => {
           xfbml: true,
           version: 'v24.0'
         })
+        console.log('Facebook SDK initialized successfully')
       };
 
       (function (d, s, id) {
@@ -113,6 +127,8 @@ const WhatsAppSetup = () => {
         js = d.createElement(s)
         js.id = id
         js.src = 'https://connect.facebook.net/en_US/sdk.js'
+        js.async = true
+        js.defer = true
         fjs.parentNode.insertBefore(js, fjs)
       }(document, 'script', 'facebook-jssdk'))
     }
@@ -146,6 +162,13 @@ const WhatsAppSetup = () => {
       setLoading(true)
       setError(null)
 
+      // Check if Facebook SDK is loaded
+      if (!window.FB) {
+        setError('Facebook SDK is not loaded yet. Please wait a moment and try again.')
+        setLoading(false)
+        return
+      }
+
       // Add session info listener
       window.addEventListener('message', sessionInfoListener)
 
@@ -154,30 +177,61 @@ const WhatsAppSetup = () => {
       const session = initResponse.data
       setSignupSession(session)
 
+      console.log('Starting FB.login with config:', {
+        config_id: session.configId,
+        appId: session.appId
+      })
+
       // Launch Facebook Login with WhatsApp Embedded Signup
       window.FB.login(
-        async function(response) {
+        function(response) {
+          console.log('FB.login response:', response)
           if (response.authResponse) {
             const { code } = response.authResponse
             
-            try {
-              // Exchange code - this handles the full flow like nyife-dev
-              const result = await embeddedSignupService.exchangeCode({ code })
-              
-              setSuccess('WhatsApp Business Account connected successfully!')
-              setSnackbar({
-                open: true,
-                message: 'WhatsApp connected! Templates will be synced automatically.',
-                severity: 'success'
+            // Handle async code exchange separately
+            embeddedSignupService.exchangeCode({ code })
+              .then((result) => {
+                console.log('Exchange code result:', result)
+                
+                // Set the newly connected account as selected
+                if (result.data) {
+                  const newAccount = {
+                    wabaId: result.data.wabaId,
+                    businessName: result.data.businessName,
+                    phoneNumberId: result.data.phoneNumberId,
+                    displayPhoneNumber: result.data.displayPhoneNumber,
+                    verifiedName: result.data.verifiedName,
+                    qualityRating: result.data.qualityRating,
+                    nameStatus: result.data.nameStatus,
+                    messagingLimitTier: result.data.messagingLimitTier,
+                    accountReviewStatus: result.data.accountReviewStatus,
+                    businessVerificationStatus: result.data.businessVerificationStatus,
+                    status: 'ACTIVE'
+                  }
+                  setAccounts([newAccount])
+                  setSelectedAccount(newAccount)
+                }
+                
+                setSuccess(`WhatsApp Business Account "${result.data?.businessName || 'Unknown'}" connected successfully!`)
+                setSnackbar({
+                  open: true,
+                  message: `Connected: ${result.data?.displayPhoneNumber || 'WhatsApp account'}`,
+                  severity: 'success'
+                })
+                loadAccounts()
+                setLoading(false)
               })
-              loadAccounts()
-            } catch (err) {
-              setError(err.response?.data?.error || 'Failed to complete WhatsApp setup')
-            }
+              .catch((err) => {
+                console.error('Exchange code error:', err)
+                setError(err.response?.data?.error || err.response?.data?.details || 'Failed to complete WhatsApp setup')
+                setLoading(false)
+              })
           } else {
+            console.log('FB login cancelled or failed:', response)
             setError('Facebook login was cancelled or failed')
+            setLoading(false)
           }
-          setLoading(false)
         },
         {
           config_id: session.configId,
@@ -191,7 +245,8 @@ const WhatsAppSetup = () => {
         }
       )
     } catch (err) {
-      setError(err.response?.data?.error || 'Failed to start embedded signup')
+      console.error('Embedded signup error:', err)
+      setError(err.response?.data?.error || err.message || 'Failed to start embedded signup')
       setLoading(false)
     }
   }
@@ -340,6 +395,15 @@ const WhatsAppSetup = () => {
       case 'REJECTED': return 'error'
       default: return 'default'
     }
+  }
+
+  // Show loading while session is loading
+  if (status === 'loading') {
+    return (
+      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: 400 }}>
+        <CircularProgress />
+      </Box>
+    )
   }
 
   return (

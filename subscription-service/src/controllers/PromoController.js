@@ -275,24 +275,46 @@ export const getAllPromoCodes = async (req, res) => {
       res.status(200).json({
         success: true,
         count: promoCodes.length,
-        data: promoCodes.map(p => ({
-          id: p.id,
-          code: p.code,
-          description: p.description,
-          discountType: p.discount_type,
-          discountValue: parseFloat(p.discount_value),
-          maxDiscountAmount: p.max_discount_amount ? parseFloat(p.max_discount_amount) : null,
-          applicablePlans: p.applicable_plans ? JSON.parse(p.applicable_plans) : null,
-          applicableBillingCycles: p.applicable_billing_cycles ? JSON.parse(p.applicable_billing_cycles) : null,
-          validFrom: p.valid_from,
-          validUntil: p.valid_until,
-          maxUses: p.max_uses,
-          maxUsesPerUser: p.max_uses_per_user,
-          currentUses: p.current_uses,
-          isActive: p.is_active,
-          createdAt: p.created_at,
-          updatedAt: p.updated_at,
-        })),
+        data: promoCodes.map(p => {
+          // Safely parse JSON fields
+          let applicablePlans = null;
+          let applicableBillingCycles = null;
+
+          try {
+            if (p.applicable_plans && typeof p.applicable_plans === 'string') {
+              applicablePlans = JSON.parse(p.applicable_plans);
+            }
+          } catch (e) {
+            console.warn(`Failed to parse applicable_plans for promo ${p.id}:`, e.message);
+          }
+
+          try {
+            if (p.applicable_billing_cycles && typeof p.applicable_billing_cycles === 'string') {
+              applicableBillingCycles = JSON.parse(p.applicable_billing_cycles);
+            }
+          } catch (e) {
+            console.warn(`Failed to parse applicable_billing_cycles for promo ${p.id}:`, e.message);
+          }
+
+          return {
+            id: p.id,
+            code: p.code,
+            description: p.description,
+            discountType: p.discount_type,
+            discountValue: parseFloat(p.discount_value),
+            maxDiscountAmount: p.max_discount_amount ? parseFloat(p.max_discount_amount) : null,
+            applicablePlans: applicablePlans,
+            applicableBillingCycles: applicableBillingCycles,
+            validFrom: p.valid_from,
+            validUntil: p.valid_until,
+            maxUses: p.max_uses,
+            maxUsesPerUser: p.max_uses_per_user,
+            currentUses: p.current_uses,
+            isActive: p.is_active,
+            createdAt: p.created_at,
+            updatedAt: p.updated_at,
+          };
+        }),
       });
     } finally {
       connection.release();
@@ -329,6 +351,26 @@ export const getPromoCodeById = async (req, res) => {
     // Get usage statistics
     const stats = await PromoCode.getUsageStats(promoId);
 
+    // Safely parse JSON fields
+    let applicablePlans = null;
+    let applicableBillingCycles = null;
+
+    try {
+      if (promo.applicable_plans && typeof promo.applicable_plans === 'string') {
+        applicablePlans = JSON.parse(promo.applicable_plans);
+      }
+    } catch (e) {
+      console.warn(`Failed to parse applicable_plans:`, e.message);
+    }
+
+    try {
+      if (promo.applicable_billing_cycles && typeof promo.applicable_billing_cycles === 'string') {
+        applicableBillingCycles = JSON.parse(promo.applicable_billing_cycles);
+      }
+    } catch (e) {
+      console.warn(`Failed to parse applicable_billing_cycles:`, e.message);
+    }
+
     console.log('✓ Promo code fetched successfully');
     console.log('========== GET PROMO CODE BY ID END ==========\n');
 
@@ -341,8 +383,8 @@ export const getPromoCodeById = async (req, res) => {
         discountType: promo.discount_type,
         discountValue: parseFloat(promo.discount_value),
         maxDiscountAmount: promo.max_discount_amount ? parseFloat(promo.max_discount_amount) : null,
-        applicablePlans: promo.applicable_plans ? JSON.parse(promo.applicable_plans) : null,
-        applicableBillingCycles: promo.applicable_billing_cycles ? JSON.parse(promo.applicable_billing_cycles) : null,
+        applicablePlans: applicablePlans,
+        applicableBillingCycles: applicableBillingCycles,
         validFrom: promo.valid_from,
         validUntil: promo.valid_until,
         maxUses: promo.max_uses,
@@ -352,9 +394,9 @@ export const getPromoCodeById = async (req, res) => {
         createdAt: promo.created_at,
         updatedAt: promo.updated_at,
         statistics: {
-          totalUses: stats.total_uses,
+          totalUses: stats.total_uses || 0,
           totalDiscountGiven: parseFloat(stats.total_discount || 0),
-          uniqueUsers: stats.unique_users,
+          uniqueUsers: stats.unique_users || 0,
         },
       },
     });
