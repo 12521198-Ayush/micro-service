@@ -325,9 +325,9 @@ class EmbeddedSignupController {
         phoneData.platform_type
       ]);
 
-      // Update user with WABA ID
+      // Set default WABA ID only if user doesn't have one yet
       const userQuery = `
-        UPDATE users SET meta_business_account_id = ? WHERE id = ?
+        UPDATE users SET meta_business_account_id = COALESCE(meta_business_account_id, ?) WHERE id = ?
       `;
       await connection.execute(userQuery, [wabaData.id, userId]);
 
@@ -355,9 +355,11 @@ class EmbeddedSignupController {
         const query = `
           SELECT 
             w.id, w.waba_id, w.business_name, w.currency, w.timezone_id,
-            w.template_namespace, w.review_status, w.created_at,
+            w.template_namespace, w.review_status, w.business_verification_status,
+            w.organization_id, w.status as waba_status, w.created_at,
             p.phone_number_id, p.display_phone_number, p.verified_name,
-            p.quality_rating, p.platform_type, p.status as phone_status
+            p.quality_rating, p.platform_type, p.status as phone_status,
+            p.messaging_limit_tier, p.code_verification_status, p.name_status
           FROM waba_accounts w
           LEFT JOIN phone_numbers p ON w.waba_id = p.waba_id
           WHERE w.user_id = ?
@@ -378,6 +380,9 @@ class EmbeddedSignupController {
               timezoneId: row.timezone_id,
               templateNamespace: row.template_namespace,
               reviewStatus: row.review_status,
+              businessVerificationStatus: row.business_verification_status,
+              organizationId: row.organization_id,
+              status: row.waba_status,
               createdAt: row.created_at,
               phoneNumbers: []
             };
@@ -389,7 +394,10 @@ class EmbeddedSignupController {
               verifiedName: row.verified_name,
               qualityRating: row.quality_rating,
               platformType: row.platform_type,
-              status: row.phone_status
+              status: row.phone_status,
+              messagingLimitTier: row.messaging_limit_tier,
+              codeVerificationStatus: row.code_verification_status,
+              nameStatus: row.name_status
             });
           }
         });
@@ -1362,9 +1370,9 @@ class EmbeddedSignupController {
           `, [wabaId, webhookUrl, webhookToken]);
         }
 
-        // Update user's default WABA
+        // Update user's default WABA only if not set
         await connection.execute(
-          'UPDATE users SET meta_business_account_id = ? WHERE id = ?',
+          'UPDATE users SET meta_business_account_id = COALESCE(meta_business_account_id, ?) WHERE id = ?',
           [wabaId, userId]
         );
 

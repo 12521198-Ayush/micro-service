@@ -76,6 +76,7 @@ const WhatsAppSetup = () => {
   const [syncingTemplates, setSyncingTemplates] = useState(false)
   const [refreshingData, setRefreshingData] = useState(false)
   const [tokenSynced, setTokenSynced] = useState(false)
+  const [signingUp, setSigningUp] = useState(false)
 
   // Sync NextAuth token to localStorage for API calls
   useEffect(() => {
@@ -92,10 +93,15 @@ const WhatsAppSetup = () => {
     try {
       setLoading(true)
       const response = await embeddedSignupService.getConnectedAccounts()
-      setAccounts(response.data || [])
-      if (response.data?.length > 0 && !selectedAccount) {
-        setSelectedAccount(response.data[0])
-      }
+      const loadedAccounts = response.data || []
+      setAccounts(loadedAccounts)
+      setSelectedAccount(prev => {
+        if (!loadedAccounts.length) return null
+        if (prev?.wabaId) {
+          return loadedAccounts.find(acc => acc.wabaId === prev.wabaId) || loadedAccounts[0]
+        }
+        return loadedAccounts[0]
+      })
     } catch (err) {
       console.error('Failed to load accounts:', err)
     } finally {
@@ -159,13 +165,13 @@ const WhatsAppSetup = () => {
   // Start Embedded Signup - Similar to nyife-dev EmbeddedSignupBtn
   const startEmbeddedSignup = async () => {
     try {
-      setLoading(true)
+      setSigningUp(true)
       setError(null)
 
       // Check if Facebook SDK is loaded
       if (!window.FB) {
         setError('Facebook SDK is not loaded yet. Please wait a moment and try again.')
-        setLoading(false)
+        setSigningUp(false)
         return
       }
 
@@ -199,17 +205,23 @@ const WhatsAppSetup = () => {
                   const newAccount = {
                     wabaId: result.data.wabaId,
                     businessName: result.data.businessName,
-                    phoneNumberId: result.data.phoneNumberId,
-                    displayPhoneNumber: result.data.displayPhoneNumber,
-                    verifiedName: result.data.verifiedName,
-                    qualityRating: result.data.qualityRating,
-                    nameStatus: result.data.nameStatus,
-                    messagingLimitTier: result.data.messagingLimitTier,
-                    accountReviewStatus: result.data.accountReviewStatus,
+                    reviewStatus: result.data.accountReviewStatus,
                     businessVerificationStatus: result.data.businessVerificationStatus,
-                    status: 'ACTIVE'
+                    status: 'ACTIVE',
+                    phoneNumbers: [
+                      {
+                        phoneNumberId: result.data.phoneNumberId,
+                        displayPhoneNumber: result.data.displayPhoneNumber,
+                        verifiedName: result.data.verifiedName,
+                        qualityRating: result.data.qualityRating,
+                        nameStatus: result.data.nameStatus,
+                        messagingLimitTier: result.data.messagingLimitTier,
+                        codeVerificationStatus: result.data.codeVerificationStatus,
+                        status: 'CONNECTED'
+                      }
+                    ]
                   }
-                  setAccounts([newAccount])
+                  setAccounts(prev => [newAccount, ...prev.filter(acc => acc.wabaId !== newAccount.wabaId)])
                   setSelectedAccount(newAccount)
                 }
                 
@@ -220,17 +232,17 @@ const WhatsAppSetup = () => {
                   severity: 'success'
                 })
                 loadAccounts()
-                setLoading(false)
+                setSigningUp(false)
               })
               .catch((err) => {
                 console.error('Exchange code error:', err)
                 setError(err.response?.data?.error || err.response?.data?.details || 'Failed to complete WhatsApp setup')
-                setLoading(false)
+                setSigningUp(false)
               })
           } else {
             console.log('FB login cancelled or failed:', response)
             setError('Facebook login was cancelled or failed')
-            setLoading(false)
+            setSigningUp(false)
           }
         },
         {
@@ -247,7 +259,7 @@ const WhatsAppSetup = () => {
     } catch (err) {
       console.error('Embedded signup error:', err)
       setError(err.response?.data?.error || err.message || 'Failed to start embedded signup')
-      setLoading(false)
+      setSigningUp(false)
     }
   }
 
@@ -468,8 +480,8 @@ const WhatsAppSetup = () => {
                 variant='contained'
                 size='large'
                 onClick={startEmbeddedSignup}
-                disabled={loading}
-                startIcon={loading ? <CircularProgress size={20} color='inherit' /> : (
+                disabled={signingUp}
+                startIcon={signingUp ? <CircularProgress size={20} color='inherit' /> : (
                   <i className='ri-arrow-right-line' />
                 )}
                 sx={{ 
@@ -480,7 +492,7 @@ const WhatsAppSetup = () => {
                   boxShadow: '0 4px 12px rgba(255, 81, 0, 0.3)'
                 }}
               >
-                {loading ? 'Connecting...' : 'Setup WhatsApp'}
+                {signingUp ? 'Connecting...' : 'Setup WhatsApp'}
               </Button>
             </Box>
 
@@ -516,6 +528,56 @@ const WhatsAppSetup = () => {
       {/* Connected Account Details */}
       {accounts.length > 0 && selectedAccount && (
         <>
+          {/* Connected Accounts List */}
+          <Card sx={{ mb: 3 }}>
+            <CardHeader
+              title='Connected WhatsApp Accounts'
+              subheader='Manage and switch between multiple WhatsApp Business Accounts'
+              action={
+                <Button
+                  variant='contained'
+                  onClick={startEmbeddedSignup}
+                  disabled={signingUp}
+                  startIcon={signingUp ? <CircularProgress size={16} color='inherit' /> : <i className='ri-add-line' />}
+                  sx={{ bgcolor: '#ff5100', '&:hover': { bgcolor: '#e64a00' } }}
+                >
+                  {signingUp ? 'Connecting...' : 'Add Another Account'}
+                </Button>
+              }
+            />
+            <CardContent>
+              <List disablePadding>
+                {accounts.map(account => (
+                  <ListItem
+                    key={account.wabaId}
+                    divider
+                    secondaryAction={
+                      <Chip
+                        size='small'
+                        color={account.wabaId === selectedAccount.wabaId ? 'success' : 'default'}
+                        label={account.wabaId === selectedAccount.wabaId ? 'Selected' : 'Select'}
+                        onClick={() => setSelectedAccount(account)}
+                        sx={{ cursor: 'pointer' }}
+                      />
+                    }
+                  >
+                    <ListItemIcon>
+                      <i className='ri-whatsapp-line' style={{ color: '#25D366', fontSize: 20 }} />
+                    </ListItemIcon>
+                    <ListItemText
+                      primary={account.businessName || 'WhatsApp Business Account'}
+                      secondary={
+                        account.phoneNumbers?.[0]?.displayPhoneNumber
+                          ? `${account.phoneNumbers?.[0]?.displayPhoneNumber} • ${account.wabaId}`
+                          : account.wabaId
+                      }
+                    />
+                  </ListItem>
+                ))}
+              </List>
+            </CardContent>
+          </Card>
+
           {/* Connection Status Card */}
           <Card sx={{ mb: 3 }}>
             <Box sx={{ 

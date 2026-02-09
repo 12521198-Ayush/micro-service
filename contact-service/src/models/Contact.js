@@ -72,6 +72,16 @@ const Contact = sequelize.define('Contact', {
     defaultValue: false,
     field: 'is_favorite',
   },
+  groupId: {
+    type: DataTypes.INTEGER,
+    allowNull: true,
+    field: 'group_id',
+    references: {
+      model: 'groups',
+      key: 'id'
+    },
+    onDelete: 'CASCADE'
+  },
 }, {
   tableName: 'contacts',
   timestamps: true,

@@ -1,0 +1,36 @@
+{
+  "name": "support-service",
+  "version": "1.0.0",
+  "description": "Support ticket management microservice with feedback and analytics",
+  "main": "src/app.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/app.js",
+    "dev": "nodemon src/app.js"
+  },
+  "keywords": [
+    "support",
+    "tickets",
+    "customer-service",
+    "helpdesk",
+    "microservice"
+  ],
+  "author": "Your Company",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.18.2",
+    "mysql2": "^3.6.5",
+    "redis": "^4.6.11",
+    "dotenv": "^16.3.1",
+    "jsonwebtoken": "^9.0.2",
+    "helmet": "^7.1.0",
+    "cors": "^2.8.5",
+    "morgan": "^1.10.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
