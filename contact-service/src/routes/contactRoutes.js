@@ -10,6 +10,8 @@ const {
   assignContactsToGroup,
   removeContactsFromGroup,
   toggleFavorite,
+  bulkCreateContacts,
+  getContactsByGroupId,
 } = require('../controllers/contactController');
 const authMiddleware = require('../middleware/auth');
 
@@ -76,6 +78,16 @@ const assignToGroupValidation = [
 // @desc    Create a new contact
 // @access  Private
 router.post('/', contactValidation, createContact);
+
+// @route   POST /api/contacts/bulk
+// @desc    Bulk create contacts from file data
+// @access  Private
+router.post('/bulk', bulkCreateContacts);
+
+// @route   GET /api/contacts/group/:groupId
+// @desc    Get contacts by group ID
+// @access  Private
+router.get('/group/:groupId', getContactsByGroupId);
 
 // @route   GET/POST /api/contacts OR /api/contacts/list
 // @desc    Get all contacts for logged in user

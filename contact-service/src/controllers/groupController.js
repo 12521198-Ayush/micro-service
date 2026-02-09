@@ -78,14 +78,24 @@ const getGroupsByUserId = async (req, res) => {
     const options = {
       where: { userId },
       order: [['createdAt', 'DESC']],
+      attributes: {
+        include: [
+          [
+            require('sequelize').literal(
+              '(SELECT COUNT(DISTINCT c.id) FROM contacts c LEFT JOIN contact_groups cg ON c.id = cg.contact_id WHERE c.group_id = Group.id OR cg.group_id = Group.id)'
+            ),
+            'contact_count'
+          ]
+        ]
+      }
     };
 
     // Optionally include contacts in each group
     if (includeContacts === 'true') {
       options.include = [{
         model: Contact,
-        as: 'contacts',
-        through: { attributes: [] }, // Exclude junction table fields
+        as: 'directContacts',
+        attributes: ['id', 'firstName', 'lastName', 'email', 'phone', 'countryCode']
       }];
     }
 
@@ -236,8 +246,16 @@ const deleteGroup = async (req, res) => {
   try {
     const { id } = req.params;
     const userId = req.user.id;
+    const { deleteContacts = 'true' } = req.query; // Default to deleting contacts
 
-    const group = await Group.findOne({ where: { id, userId } });
+    const group = await Group.findOne({ 
+      where: { id, userId },
+      include: [{
+        model: Contact,
+        as: 'directContacts',
+        attributes: ['id']
+      }]
+    });
 
     if (!group) {
       return res.status(404).json({ 
@@ -246,15 +264,20 @@ const deleteGroup = async (req, res) => {
       });
     }
 
+    const contactCount = group.directContacts?.length || 0;
+
+    // Contacts will be deleted automatically due to CASCADE
     await group.destroy();
 
     // Invalidate caches
     await cache.deletePattern(cacheKeys.patterns.group(userId, id));
     await cache.deletePattern(cacheKeys.patterns.userGroups(userId));
+    await cache.deletePattern(cacheKeys.patterns.userContacts(userId));
 
     res.json({
       success: true,
-      message: 'Group deleted successfully',
+      message: `Group deleted successfully. ${contactCount} contact(s) were also deleted.`,
+      deletedContacts: contactCount
     });
   } catch (error) {
     console.error('Error deleting group:', error);

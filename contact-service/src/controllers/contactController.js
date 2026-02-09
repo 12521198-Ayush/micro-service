@@ -26,9 +26,21 @@ const createContact = async (req, res) => {
       company, 
       jobTitle, 
       notes,
-      isFavorite 
+      isFavorite,
+      groupId
     } = req.body;
     const userId = req.user.id;
+
+    // Verify group belongs to user if provided
+    if (groupId) {
+      const group = await Group.findOne({ where: { id: groupId, userId } });
+      if (!group) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid group or group does not belong to you'
+        });
+      }
+    }
 
     // Check if contact with same phone and country code already exists for this user
     const existingContact = await Contact.findOne({
@@ -57,6 +69,7 @@ const createContact = async (req, res) => {
       jobTitle,
       notes,
       isFavorite: isFavorite || false,
+      groupId: groupId || null,
     });
 
     // Invalidate user contacts cache
@@ -485,6 +498,177 @@ const toggleFavorite = async (req, res) => {
   }
 };
 
+// @desc    Bulk create contacts from file data
+// @route   POST /api/contacts/bulk
+// @access  Private
+const bulkCreateContacts = async (req, res) => {
+  try {
+    const { contacts: contactsData, groupId } = req.body;
+    const userId = req.user.id;
+
+    if (!Array.isArray(contactsData) || contactsData.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'contacts must be a non-empty array'
+      });
+    }
+
+    // Verify group belongs to user if provided
+    if (groupId) {
+      const group = await Group.findOne({ where: { id: groupId, userId } });
+      if (!group) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid group or group does not belong to you'
+        });
+      }
+    }
+
+    const results = {
+      created: 0,
+      skipped: 0,
+      errors: []
+    };
+
+    // Process contacts in batches
+    for (const contactData of contactsData) {
+      try {
+        // Skip if required fields missing
+        if (!contactData.firstName || !contactData.phone) {
+          results.skipped++;
+          results.errors.push({
+            data: contactData,
+            error: 'Missing required fields (firstName, phone)'
+          });
+          continue;
+        }
+
+        // Check for duplicate
+        const existingContact = await Contact.findOne({
+          where: {
+            userId,
+            phone: contactData.phone,
+            countryCode: contactData.countryCode || '+1'
+          }
+        });
+
+        if (existingContact) {
+          results.skipped++;
+          results.errors.push({
+            data: contactData,
+            error: 'Contact with this phone number already exists'
+          });
+          continue;
+        }
+
+        await Contact.create({
+          userId,
+          firstName: contactData.firstName,
+          lastName: contactData.lastName || '',
+          email: contactData.email || '',
+          phone: contactData.phone,
+          countryCode: contactData.countryCode || '+1',
+          company: contactData.company || null,
+          jobTitle: contactData.jobTitle || null,
+          notes: contactData.notes || null,
+          isFavorite: false,
+          groupId: groupId || null
+        });
+
+        results.created++;
+      } catch (err) {
+        results.skipped++;
+        results.errors.push({
+          data: contactData,
+          error: err.message
+        });
+      }
+    }
+
+    // Invalidate cache
+    await cache.deletePattern(cacheKeys.patterns.userContacts(userId));
+    if (groupId) {
+      await cache.deletePattern(cacheKeys.patterns.userGroups(userId));
+    }
+
+    res.status(201).json({
+      success: true,
+      message: `Bulk import completed. ${results.created} contacts created, ${results.skipped} skipped.`,
+      data: results
+    });
+  } catch (error) {
+    console.error('Error bulk creating contacts:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error',
+      error: error.message
+    });
+  }
+};
+
+// @desc    Get contacts by group ID
+// @route   GET /api/contacts/group/:groupId
+// @access  Private
+const getContactsByGroupId = async (req, res) => {
+  try {
+    const { groupId } = req.params;
+    const userId = req.user.id;
+    const { page = 1, limit = 50, search = '' } = req.query;
+
+    // Verify group belongs to user
+    const group = await Group.findOne({ where: { id: groupId, userId } });
+    if (!group) {
+      return res.status(404).json({
+        success: false,
+        message: 'Group not found'
+      });
+    }
+
+    const options = {
+      where: { 
+        userId,
+        groupId: groupId
+      },
+      order: [['createdAt', 'DESC']],
+      limit: parseInt(limit),
+      offset: (parseInt(page) - 1) * parseInt(limit)
+    };
+
+    // Add search filter
+    if (search) {
+      options.where[Op.or] = [
+        { firstName: { [Op.like]: `%${search}%` } },
+        { lastName: { [Op.like]: `%${search}%` } },
+        { email: { [Op.like]: `%${search}%` } },
+        { phone: { [Op.like]: `%${search}%` } }
+      ];
+    }
+
+    const { count, rows: contacts } = await Contact.findAndCountAll(options);
+
+    res.json({
+      success: true,
+      count: contacts.length,
+      total: count,
+      totalPages: Math.ceil(count / limit),
+      currentPage: parseInt(page),
+      group: {
+        id: group.id,
+        name: group.name,
+        description: group.description
+      },
+      data: contacts
+    });
+  } catch (error) {
+    console.error('Error fetching contacts by group:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error',
+      error: error.message
+    });
+  }
+};
+
 module.exports = {
   createContact,
   getContactsByUserId,
@@ -494,4 +678,6 @@ module.exports = {
   assignContactsToGroup,
   removeContactsFromGroup,
   toggleFavorite,
+  bulkCreateContacts,
+  getContactsByGroupId,
 };

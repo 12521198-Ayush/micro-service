@@ -1,7 +1,7 @@
-import GroupsList from '@views/groups/GroupsList'
+import ContactsGroupsPage from '@views/contacts/ContactsGroupsPage'
 
 const GroupsPage = () => {
-  return <GroupsList />
+  return <ContactsGroupsPage />
 }
 
 export default GroupsPage

@@ -80,8 +80,11 @@ const VerticalMenu = ({ scrollMenu }) => {
           <MenuItem href='/team/list'>Departments & Agents</MenuItem>
         </SubMenu>
         
-        {/* Account Settings */}
-        <MenuItem href='/account-settings' icon={<i className='ri-settings-3-line' />}>Account Settings</MenuItem>
+        {/* Settings */}
+        <SubMenu label='Settings' icon={<i className='ri-settings-4-line' />}>
+          <MenuItem href='/whatsapp-setup' icon={<i className='ri-whatsapp-line' />}>WhatsApp Setup</MenuItem>
+          <MenuItem href='/account-settings'>Account Settings</MenuItem>
+        </SubMenu>
         
         {/* Billing */}
         <MenuItem href='/billing' icon={<i className='ri-bill-line' />}>Billing</MenuItem>

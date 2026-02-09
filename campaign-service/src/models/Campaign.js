@@ -42,8 +42,9 @@ class Campaign {
     query += ' ORDER BY created_at DESC';
 
     if (filters.limit) {
-      query += ' LIMIT ? OFFSET ?';
-      params.push(parseInt(filters.limit), parseInt(filters.offset || 0));
+      const limitVal = parseInt(filters.limit) || 10;
+      const offsetVal = parseInt(filters.offset) || 0;
+      query += ` LIMIT ${limitVal} OFFSET ${offsetVal}`;
     }
 
     const [rows] = await pool.execute(query, params);

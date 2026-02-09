@@ -211,3 +211,36 @@ export async function deleteGroup(token, id) {
     method: 'DELETE'
   })
 }
+
+/**
+ * Bulk create contacts
+ * @param {string} token - JWT token
+ * @param {object} data - { contacts: [], groupId }
+ */
+export async function bulkCreateContacts(token, data) {
+  return contactApiRequest('/api/contacts/bulk', token, {
+    method: 'POST',
+    body: JSON.stringify(data)
+  })
+}
+
+/**
+ * Get contacts by group ID
+ * @param {string} token - JWT token
+ * @param {number} groupId - Group ID
+ * @param {object} params - { page, limit, search }
+ */
+export async function getContactsByGroupId(token, groupId, params = {}) {
+  const queryParams = new URLSearchParams()
+  
+  if (params.page) queryParams.append('page', params.page)
+  if (params.limit) queryParams.append('limit', params.limit)
+  if (params.search) queryParams.append('search', params.search)
+
+  const queryString = queryParams.toString()
+  const endpoint = `/api/contacts/group/${groupId}${queryString ? `?${queryString}` : ''}`
+
+  return contactApiRequest(endpoint, token, {
+    method: 'GET'
+  })
+}
