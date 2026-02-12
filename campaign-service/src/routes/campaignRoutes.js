@@ -38,6 +38,7 @@ router.post('/:id/schedule', scheduleCampaign);
 
 // Analytics and reporting
 router.get('/:id/analytics', getCampaignAnalytics);
+router.get('/:id/stats', getCampaignAnalytics); // alias
 router.get('/:id/messages', getCampaignMessages);
 
 export default router;

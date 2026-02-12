@@ -94,7 +94,7 @@ const CampaignsList = () => {
       
       const response = await getCampaigns(session.accessToken, params)
       setCampaigns(response.data || [])
-      setTotalCampaigns(response.pagination?.total || 0)
+      setTotalCampaigns(response.total || response.count || 0)
     } catch (error) {
       if (error.status === 401 || error.status === 403) {
         signOut({ callbackUrl: '/login' })
@@ -220,19 +220,19 @@ const CampaignsList = () => {
                             <Box sx={{ minWidth: 100 }}>
                               <Box display="flex" justifyContent="space-between" mb={0.5}>
                                 <Typography variant="caption">
-                                  {campaign.sent_count || 0}/{campaign.total_count || 0}
+                                  {campaign.sent_count || 0}/{campaign.total_recipients || 0}
                                 </Typography>
                                 <Typography variant="caption">
-                                  {campaign.total_count > 0
-                                    ? Math.round((campaign.sent_count / campaign.total_count) * 100)
+                                  {campaign.total_recipients > 0
+                                    ? Math.round((campaign.sent_count / campaign.total_recipients) * 100)
                                     : 0}%
                                 </Typography>
                               </Box>
                               <LinearProgress
                                 variant="determinate"
                                 value={
-                                  campaign.total_count > 0
-                                    ? (campaign.sent_count / campaign.total_count) * 100
+                                  campaign.total_recipients > 0
+                                    ? (campaign.sent_count / campaign.total_recipients) * 100
                                     : 0
                                 }
                                 sx={{ height: 6, borderRadius: 3 }}

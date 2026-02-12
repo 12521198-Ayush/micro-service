@@ -32,7 +32,7 @@ import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider'
 import { DateTimePicker } from '@mui/x-date-pickers/DateTimePicker'
 
 // API Imports
-import { createCampaign } from '@/libs/campaign-service'
+import { createCampaign, executeCampaign } from '@/libs/campaign-service'
 import { listTemplates } from '@/libs/template-service'
 import { getGroups } from '@/libs/contact-service'
 
@@ -49,6 +49,10 @@ const CampaignCreate = () => {
     scheduledAt: null,
     status: 'draft'
   })
+
+  // Template parameter state
+  const [bodyParams, setBodyParams] = useState([])
+  const [headerParam, setHeaderParam] = useState({ type: 'none', value: '' })
   
   // Data state
   const [templates, setTemplates] = useState([])
@@ -97,7 +101,41 @@ const CampaignCreate = () => {
     
     // Update selected template/group for preview
     if (field === 'templateId') {
-      setSelectedTemplate(templates.find(t => t.id === value || t.uuid === value))
+      const tmpl = templates.find(t => t.id === value || t.uuid === value)
+      setSelectedTemplate(tmpl)
+
+      // Parse template body text for variables like {{1}}, {{2}}, etc.
+      if (tmpl) {
+        const bodyComponent = tmpl.components?.find(c => c.type === 'BODY')
+        const bodyText = bodyComponent?.text || ''
+        const matches = bodyText.match(/\{\{(\d+)\}\}/g) || []
+        const uniqueVars = [...new Set(matches)]
+        
+        setBodyParams(uniqueVars.map((v, i) => ({
+          index: i,
+          placeholder: v,
+          type: 'static', // 'static' or 'dynamic' (first_name, last_name, etc.)
+          value: ''
+        })))
+
+        // Check header for media/variable
+        const headerComponent = tmpl.components?.find(c => c.type === 'HEADER')
+        if (headerComponent) {
+          const fmt = headerComponent.format?.toUpperCase()
+          if (['IMAGE', 'VIDEO', 'DOCUMENT'].includes(fmt)) {
+            setHeaderParam({ type: fmt.toLowerCase(), value: '' })
+          } else if (fmt === 'TEXT' && headerComponent.text?.includes('{{')) {
+            setHeaderParam({ type: 'text', value: '' })
+          } else {
+            setHeaderParam({ type: 'none', value: '' })
+          }
+        } else {
+          setHeaderParam({ type: 'none', value: '' })
+        }
+      } else {
+        setBodyParams([])
+        setHeaderParam({ type: 'none', value: '' })
+      }
     }
     if (field === 'groupId') {
       setSelectedGroup(groups.find(g => g.id === parseInt(value)))
@@ -105,7 +143,8 @@ const CampaignCreate = () => {
   }
 
   // Submit form
-  const handleSubmit = async (saveAsDraft = false) => {
+  const handleSubmit = async (mode = 'draft') => {
+    // mode: 'draft', 'schedule', 'sendNow'
     if (!session?.accessToken) return
 
     if (!formData.name || !formData.templateId || !formData.groupId) {
@@ -113,32 +152,90 @@ const CampaignCreate = () => {
       return
     }
 
-    if (!saveAsDraft && !formData.scheduledAt) {
+    if (mode === 'schedule' && !formData.scheduledAt) {
       setSnackbar({ open: true, message: 'Please select a schedule time', severity: 'error' })
       return
     }
 
     try {
       setLoading(true)
-      
+
+      // Build metadata with template parameters
+      const metadata = {
+        bodyParameters: {},
+        headerParam: headerParam.type !== 'none' ? headerParam : undefined,
+        components: []
+      }
+
+      // Build body components
+      if (bodyParams.length > 0) {
+        const bodyComponent = {
+          type: 'body',
+          parameters: bodyParams.map(p => ({
+            type: 'text',
+            text: p.type === 'static' ? p.value : `{{${p.type}}}`
+          }))
+        }
+        metadata.components.push(bodyComponent)
+        
+        // Map dynamic params for variable replacement
+        bodyParams.forEach(p => {
+          if (p.type !== 'static') {
+            metadata.bodyParameters[p.placeholder] = p.type
+          }
+        })
+      }
+
+      // Build header component
+      if (headerParam.type === 'text' && headerParam.value) {
+        metadata.components.push({
+          type: 'header',
+          parameters: [{ type: 'text', text: headerParam.value }]
+        })
+      } else if (['image', 'video', 'document'].includes(headerParam.type) && headerParam.value) {
+        metadata.components.push({
+          type: 'header',
+          parameters: [{
+            type: headerParam.type,
+            [headerParam.type]: { link: headerParam.value }
+          }]
+        })
+      }
+
       const campaignData = {
         name: formData.name,
         description: formData.description,
         templateId: formData.templateId,
         groupId: parseInt(formData.groupId),
         scheduledAt: formData.scheduledAt ? new Date(formData.scheduledAt).toISOString() : null,
-        status: saveAsDraft ? 'draft' : 'scheduled'
+        status: mode === 'schedule' ? 'scheduled' : 'draft',
+        metadata: metadata.components.length > 0 ? metadata : undefined
       }
 
-      await createCampaign(session.accessToken, campaignData)
-      setSnackbar({ 
-        open: true, 
-        message: saveAsDraft ? 'Campaign saved as draft' : 'Campaign scheduled successfully', 
-        severity: 'success' 
-      })
+      const createRes = await createCampaign(session.accessToken, campaignData)
+
+      if (mode === 'sendNow' && createRes.data?.id) {
+        // Immediately execute
+        try {
+          await executeCampaign(session.accessToken, createRes.data.id)
+          setSnackbar({ open: true, message: 'Campaign created and sending started!', severity: 'success' })
+        } catch (execError) {
+          setSnackbar({ open: true, message: `Campaign created but execution failed: ${execError.message}`, severity: 'warning' })
+        }
+      } else {
+        setSnackbar({ 
+          open: true, 
+          message: mode === 'draft' ? 'Campaign saved as draft' : 'Campaign scheduled successfully', 
+          severity: 'success' 
+        })
+      }
       
       setTimeout(() => {
-        router.push('/campaigns/list')
+        if (mode === 'sendNow' && createRes.data?.id) {
+          router.push(`/campaigns/${createRes.data.id}`)
+        } else {
+          router.push('/campaigns/list')
+        }
       }, 1500)
     } catch (error) {
       if (error.status === 401 || error.status === 403) {
@@ -258,6 +355,92 @@ const CampaignCreate = () => {
                   <Divider sx={{ my: 2 }} />
                 </Grid>
 
+                {/* Template Parameters */}
+                {selectedTemplate && (headerParam.type !== 'none' || bodyParams.length > 0) && (
+                  <>
+                    <Grid item xs={12}>
+                      <Typography variant="subtitle1" fontWeight={600} sx={{ mb: 2 }}>
+                        Template Parameters
+                      </Typography>
+                      <Alert severity="info" sx={{ mb: 2 }}>
+                        Fill in the template variables. Use &quot;Dynamic&quot; to auto-fill from contact data (first name, last name, etc.) or enter a static value.
+                      </Alert>
+                    </Grid>
+
+                    {/* Header parameter */}
+                    {headerParam.type !== 'none' && (
+                      <Grid item xs={12}>
+                        <Typography variant="caption" color="textSecondary" sx={{ mb: 1, display: 'block' }}>
+                          Header {headerParam.type === 'text' ? 'Variable' : `(${headerParam.type})`}
+                        </Typography>
+                        <TextField
+                          fullWidth
+                          size="small"
+                          label={headerParam.type === 'text' ? 'Header text value' : `${headerParam.type} URL`}
+                          value={headerParam.value}
+                          onChange={(e) => setHeaderParam({ ...headerParam, value: e.target.value })}
+                          placeholder={headerParam.type === 'text' ? 'Enter header text' : `https://example.com/media.${headerParam.type === 'image' ? 'jpg' : headerParam.type === 'video' ? 'mp4' : 'pdf'}`}
+                        />
+                      </Grid>
+                    )}
+
+                    {/* Body parameters */}
+                    {bodyParams.map((param, index) => (
+                      <Grid item xs={12} key={index}>
+                        <Typography variant="caption" color="textSecondary" sx={{ mb: 1, display: 'block' }}>
+                          Variable {param.placeholder}
+                        </Typography>
+                        <Box display="flex" gap={2}>
+                          <FormControl size="small" sx={{ minWidth: 160 }}>
+                            <InputLabel>Type</InputLabel>
+                            <Select
+                              value={param.type}
+                              label="Type"
+                              onChange={(e) => {
+                                const updated = [...bodyParams]
+                                updated[index] = { ...param, type: e.target.value, value: e.target.value === 'static' ? '' : e.target.value }
+                                setBodyParams(updated)
+                              }}
+                            >
+                              <MenuItem value="static">Static Text</MenuItem>
+                              <MenuItem value="first_name">First Name</MenuItem>
+                              <MenuItem value="last_name">Last Name</MenuItem>
+                              <MenuItem value="name">Full Name</MenuItem>
+                              <MenuItem value="phone">Phone</MenuItem>
+                              <MenuItem value="email">Email</MenuItem>
+                            </Select>
+                          </FormControl>
+                          {param.type === 'static' && (
+                            <TextField
+                              fullWidth
+                              size="small"
+                              label={`Value for ${param.placeholder}`}
+                              value={param.value}
+                              onChange={(e) => {
+                                const updated = [...bodyParams]
+                                updated[index] = { ...param, value: e.target.value }
+                                setBodyParams(updated)
+                              }}
+                            />
+                          )}
+                          {param.type !== 'static' && (
+                            <TextField
+                              fullWidth
+                              size="small"
+                              value={`Will use contact's ${param.type.replace('_', ' ')}`}
+                              disabled
+                            />
+                          )}
+                        </Box>
+                      </Grid>
+                    ))}
+
+                    <Grid item xs={12}>
+                      <Divider sx={{ my: 2 }} />
+                    </Grid>
+                  </>
+                )}
+
                 {/* Schedule */}
                 <Grid item xs={12}>
                   <Typography variant="subtitle1" fontWeight={600} sx={{ mb: 2 }}>
@@ -285,14 +468,23 @@ const CampaignCreate = () => {
                     </Button>
                     <Button
                       variant="outlined"
-                      onClick={() => handleSubmit(true)}
+                      onClick={() => handleSubmit('draft')}
                       disabled={loading || !formData.name || !formData.templateId || !formData.groupId}
                     >
                       Save as Draft
                     </Button>
                     <Button
                       variant="contained"
-                      onClick={() => handleSubmit(false)}
+                      color="success"
+                      onClick={() => handleSubmit('sendNow')}
+                      disabled={loading || !formData.name || !formData.templateId || !formData.groupId}
+                      startIcon={loading ? <CircularProgress size={16} color="inherit" /> : <i className="ri-send-plane-line" />}
+                    >
+                      Send Now
+                    </Button>
+                    <Button
+                      variant="contained"
+                      onClick={() => handleSubmit('schedule')}
                       disabled={loading || !formData.name || !formData.templateId || !formData.groupId || !formData.scheduledAt}
                     >
                       {loading ? <CircularProgress size={24} /> : 'Schedule Campaign'}
@@ -332,6 +524,14 @@ const CampaignCreate = () => {
                     color="primary"
                     sx={{ mt: 0.5 }}
                   />
+                )}
+                {selectedTemplate?.components?.find(c => c.type === 'BODY')?.text && (
+                  <Box sx={{ mt: 1, p: 1.5, bgcolor: 'action.hover', borderRadius: 1, fontSize: '0.85rem' }}>
+                    <Typography variant="caption" color="textSecondary" sx={{ display: 'block', mb: 0.5 }}>Preview:</Typography>
+                    <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>
+                      {selectedTemplate.components.find(c => c.type === 'BODY').text}
+                    </Typography>
+                  </Box>
                 )}
               </Box>
 

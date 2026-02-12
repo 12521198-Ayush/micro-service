@@ -74,6 +74,11 @@ const createContact = async (req, res) => {
 
     // Invalidate user contacts cache
     await cache.deletePattern(cacheKeys.patterns.userContacts(userId));
+    // Invalidate group caches if contact was added to a group
+    if (groupId) {
+      await cache.deletePattern(cacheKeys.patterns.userGroups(userId));
+      await cache.deletePattern(cacheKeys.patterns.group(userId, groupId));
+    }
 
     res.status(201).json({
       success: true,
@@ -279,6 +284,7 @@ const updateContact = async (req, res) => {
     // Invalidate caches
     await cache.delete(cacheKeys.contact(userId, id));
     await cache.deletePattern(cacheKeys.patterns.userContacts(userId));
+    await cache.deletePattern(cacheKeys.patterns.userGroups(userId));
 
     res.json({
       success: true,
@@ -317,6 +323,7 @@ const deleteContact = async (req, res) => {
     // Invalidate caches
     await cache.delete(cacheKeys.contact(userId, id));
     await cache.deletePattern(cacheKeys.patterns.userContacts(userId));
+    await cache.deletePattern(cacheKeys.patterns.userGroups(userId));
 
     res.json({
       success: true,
@@ -384,6 +391,8 @@ const assignContactsToGroup = async (req, res) => {
 
     // Invalidate relevant caches
     await cache.deletePattern(cacheKeys.patterns.group(userId, groupId));
+    await cache.deletePattern(cacheKeys.patterns.userGroups(userId));
+    await cache.deletePattern(cacheKeys.patterns.userContacts(userId));
     for (const contactId of contactIds) {
       await cache.delete(cacheKeys.contact(userId, contactId));
     }
@@ -441,6 +450,8 @@ const removeContactsFromGroup = async (req, res) => {
 
     // Invalidate relevant caches
     await cache.deletePattern(cacheKeys.patterns.group(userId, groupId));
+    await cache.deletePattern(cacheKeys.patterns.userGroups(userId));
+    await cache.deletePattern(cacheKeys.patterns.userContacts(userId));
     for (const contactId of contactIds) {
       await cache.delete(cacheKeys.contact(userId, contactId));
     }

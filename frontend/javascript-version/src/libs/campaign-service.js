@@ -121,12 +121,90 @@ export async function deleteCampaign(token, id) {
 }
 
 /**
- * Get campaign statistics
+ * Get campaign statistics/analytics
  * @param {string} token - JWT token
  * @param {number} id - Campaign ID
  */
 export async function getCampaignStats(token, id) {
   return campaignApiRequest(`/api/campaigns/${id}/stats`, token, {
+    method: 'GET'
+  })
+}
+
+/**
+ * Execute/start a campaign
+ * @param {string} token - JWT token
+ * @param {number} id - Campaign ID
+ */
+export async function executeCampaign(token, id) {
+  return campaignApiRequest(`/api/campaigns/${id}/execute`, token, {
+    method: 'POST'
+  })
+}
+
+/**
+ * Pause a running campaign
+ * @param {string} token - JWT token
+ * @param {number} id - Campaign ID
+ */
+export async function pauseCampaign(token, id) {
+  return campaignApiRequest(`/api/campaigns/${id}/pause`, token, {
+    method: 'POST'
+  })
+}
+
+/**
+ * Resume a paused campaign
+ * @param {string} token - JWT token
+ * @param {number} id - Campaign ID
+ */
+export async function resumeCampaign(token, id) {
+  return campaignApiRequest(`/api/campaigns/${id}/resume`, token, {
+    method: 'POST'
+  })
+}
+
+/**
+ * Cancel a campaign
+ * @param {string} token - JWT token
+ * @param {number} id - Campaign ID
+ */
+export async function cancelCampaign(token, id) {
+  return campaignApiRequest(`/api/campaigns/${id}/cancel`, token, {
+    method: 'POST'
+  })
+}
+
+/**
+ * Schedule a campaign
+ * @param {string} token - JWT token
+ * @param {number} id - Campaign ID
+ * @param {string} scheduledAt - ISO date string
+ */
+export async function scheduleCampaign(token, id, scheduledAt) {
+  return campaignApiRequest(`/api/campaigns/${id}/schedule`, token, {
+    method: 'POST',
+    body: JSON.stringify({ scheduledAt })
+  })
+}
+
+/**
+ * Get campaign message logs
+ * @param {string} token - JWT token
+ * @param {number} id - Campaign ID
+ * @param {object} params - { status, page, limit }
+ */
+export async function getCampaignMessages(token, id, params = {}) {
+  const queryParams = new URLSearchParams()
+  
+  if (params.status) queryParams.append('status', params.status)
+  if (params.page) queryParams.append('page', params.page)
+  if (params.limit) queryParams.append('limit', params.limit)
+
+  const queryString = queryParams.toString()
+  const endpoint = `/api/campaigns/${id}/messages${queryString ? `?${queryString}` : ''}`
+
+  return campaignApiRequest(endpoint, token, {
     method: 'GET'
   })
 }
