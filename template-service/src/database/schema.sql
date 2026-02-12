@@ -1,57 +1,27 @@
--- Create template_service database
-CREATE DATABASE IF NOT EXISTS template_service;
-USE template_service;
+CREATE TABLE IF NOT EXISTS whatsapp_templates (
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    uuid CHAR(36) NOT NULL UNIQUE,
+    user_id BIGINT UNSIGNED NOT NULL,
+    meta_business_account_id VARCHAR(64) NOT NULL,
+    meta_template_id VARCHAR(64) NULL,
+    name VARCHAR(512) NOT NULL,
+    language VARCHAR(32) NOT NULL,
+    category ENUM('MARKETING', 'UTILITY', 'AUTHENTICATION') NOT NULL,
+    template_type ENUM('STANDARD', 'CAROUSEL', 'FLOW', 'AUTHENTICATION', 'UNKNOWN') NOT NULL DEFAULT 'STANDARD',
+    status VARCHAR(32) NOT NULL DEFAULT 'PENDING',
+    quality_score LONGTEXT NULL,
+    components JSON NOT NULL,
+    parameter_format VARCHAR(64) NULL,
+    raw_payload JSON NULL,
+    raw_meta_response JSON NULL,
+    last_synced_at DATETIME NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at DATETIME NULL,
 
--- Custom Template Table
-CREATE TABLE IF NOT EXISTS custom_template (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    user_id INT NOT NULL,
-    uuid VARCHAR(36) UNIQUE NOT NULL,
-    meta_id VARCHAR(255),
-    name VARCHAR(255) NOT NULL,
-    category VARCHAR(100),
-    language VARCHAR(50),
-    metadata JSON,
-    status ENUM('Pending', 'approve', 'rejected') DEFAULT 'Pending',
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    INDEX idx_user_id (user_id),
-    INDEX idx_uuid (uuid),
-    INDEX idx_status (status)
-);
-
--- Carousel Template Table
-CREATE TABLE IF NOT EXISTS carousel_template (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    user_id INT NOT NULL,
-    uuid VARCHAR(36) UNIQUE NOT NULL,
-    meta_id VARCHAR(255),
-    name VARCHAR(255) NOT NULL,
-    category VARCHAR(100),
-    language VARCHAR(50),
-    metadata JSON,
-    status ENUM('Pending', 'approve', 'rejected') DEFAULT 'Pending',
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    INDEX idx_user_id (user_id),
-    INDEX idx_uuid (uuid),
-    INDEX idx_status (status)
-);
-
--- Flow Template Table
-CREATE TABLE IF NOT EXISTS flow_template (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    user_id INT NOT NULL,
-    uuid VARCHAR(36) UNIQUE NOT NULL,
-    meta_id VARCHAR(255),
-    name VARCHAR(255) NOT NULL,
-    category VARCHAR(100),
-    language VARCHAR(50),
-    metadata JSON,
-    status ENUM('Pending', 'approve', 'rejected') DEFAULT 'Pending',
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    INDEX idx_user_id (user_id),
-    INDEX idx_uuid (uuid),
-    INDEX idx_status (status)
+    UNIQUE KEY uk_waba_name_language (user_id, meta_business_account_id, name, language),
+    UNIQUE KEY uk_user_meta_template_id (user_id, meta_template_id),
+    INDEX idx_user_status (user_id, status),
+    INDEX idx_user_type (user_id, template_type),
+    INDEX idx_created_at (created_at)
 );

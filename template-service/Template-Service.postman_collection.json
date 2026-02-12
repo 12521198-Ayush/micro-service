@@ -1,0 +1,390 @@
+{
+  "info": {
+    "_postman_id": "8e5a6a87-bce0-46a9-a5d2-e6c4c08f4baf",
+    "name": "Template Service API (WhatsApp Templates)",
+    "description": "Complete API collection for template-service. Includes REST endpoints, legacy aliases, and sample payloads for standard, carousel, flow, and authentication templates.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{jwt_token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:3003"
+    },
+    {
+      "key": "jwt_token",
+      "value": ""
+    },
+    {
+      "key": "template_uuid",
+      "value": "replace_with_template_uuid"
+    },
+    {
+      "key": "media_file_path",
+      "value": "C:/path/to/banner.jpg"
+    },
+    {
+      "key": "media_file_type",
+      "value": "image/jpeg"
+    },
+    {
+      "key": "media_file_name",
+      "value": "banner.jpg"
+    },
+    {
+      "key": "media_header_handle",
+      "value": "4::aW1hZ2UvanBlZw==:REPLACE_WITH_REAL_HEADER_HANDLE"
+    }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "Health Check",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/health"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Capabilities & Validation",
+      "item": [
+        {
+          "name": "Get Template Capabilities",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/api/templates/capabilities"
+          }
+        },
+        {
+          "name": "Upload Media (Get header_handle)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": "{{media_file_path}}"
+                },
+                {
+                  "key": "fileName",
+                  "type": "text",
+                  "value": "{{media_file_name}}"
+                },
+                {
+                  "key": "fileType",
+                  "type": "text",
+                  "value": "{{media_file_type}}"
+                }
+              ]
+            },
+            "url": "{{base_url}}/api/templates/media/upload"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  const json = pm.response.json();",
+                  "  const handle = json?.data?.header_handle || json?.data?.headerHandle;",
+                  "  if (handle) pm.collectionVariables.set('media_header_handle', handle);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Validate Template Payload",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"promo_template_validate\",\n  \"category\": \"MARKETING\",\n  \"language\": \"en_US\",\n  \"components\": [\n    {\n      \"type\": \"BODY\",\n      \"text\": \"Hello {{1}}, here is your special offer.\",\n      \"example\": {\n        \"body_text\": [\n          [\n            \"Rahul\"\n          ]\n        ]\n      }\n    },\n    {\n      \"type\": \"BUTTONS\",\n      \"buttons\": [\n        {\n          \"type\": \"URL\",\n          \"text\": \"Shop Now\",\n          \"url\": \"https://example.com/offers\"\n        }\n      ]\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{base_url}}/api/templates/validate"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Templates (REST)",
+      "item": [
+        {
+          "name": "Create Template - Standard",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  const json = pm.response.json();",
+                  "  const uuid = json?.data?.template?.uuid;",
+                  "  if (uuid) pm.collectionVariables.set('template_uuid', uuid);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"welcome_offer_standard\",\n  \"category\": \"MARKETING\",\n  \"language\": \"en_US\",\n  \"components\": [\n    {\n      \"type\": \"HEADER\",\n      \"format\": \"TEXT\",\n      \"text\": \"Special Offer\"\n    },\n    {\n      \"type\": \"BODY\",\n      \"text\": \"Hello {{1}}, enjoy 20% off today.\",\n      \"example\": {\n        \"body_text\": [\n          [\n            \"Rahul\"\n          ]\n        ]\n      }\n    },\n    {\n      \"type\": \"FOOTER\",\n      \"text\": \"Offer valid for 24 hours\"\n    },\n    {\n      \"type\": \"BUTTONS\",\n      \"buttons\": [\n        {\n          \"type\": \"URL\",\n          \"text\": \"View\",\n          \"url\": \"https://example.com/promo\"\n        }\n      ]\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{base_url}}/api/templates"
+          }
+        },
+        {
+          "name": "Create Template - Carousel",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"new_arrivals_carousel\",\n  \"category\": \"MARKETING\",\n  \"language\": \"en_US\",\n  \"components\": [\n    {\n      \"type\": \"BODY\",\n      \"text\": \"Check our latest arrivals\"\n    },\n    {\n      \"type\": \"CAROUSEL\",\n      \"cards\": [\n        {\n          \"components\": [\n            {\n              \"type\": \"HEADER\",\n              \"format\": \"IMAGE\",\n              \"example\": {\n                \"header_handle\": [\n                  \"{{media_header_handle}}\"\n                ]\n              }\n            },\n            {\n              \"type\": \"BODY\",\n              \"text\": \"Product 1 details\"\n            },\n            {\n              \"type\": \"BUTTONS\",\n              \"buttons\": [\n                {\n                  \"type\": \"URL\",\n                  \"text\": \"View\",\n                  \"url\": \"https://example.com/p1\"\n                }\n              ]\n            }\n          ]\n        },\n        {\n          \"components\": [\n            {\n              \"type\": \"HEADER\",\n              \"format\": \"IMAGE\",\n              \"example\": {\n                \"header_handle\": [\n                  \"{{media_header_handle}}\"\n                ]\n              }\n            },\n            {\n              \"type\": \"BODY\",\n              \"text\": \"Product 2 details\"\n            },\n            {\n              \"type\": \"BUTTONS\",\n              \"buttons\": [\n                {\n                  \"type\": \"URL\",\n                  \"text\": \"View\",\n                  \"url\": \"https://example.com/p2\"\n                }\n              ]\n            }\n          ]\n        }\n      ]\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{base_url}}/api/templates"
+          }
+        },
+        {
+          "name": "Create Template - Flow",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"lead_capture_flow\",\n  \"category\": \"UTILITY\",\n  \"language\": \"en_US\",\n  \"components\": [\n    {\n      \"type\": \"BODY\",\n      \"text\": \"Please complete your details in flow.\"\n    },\n    {\n      \"type\": \"BUTTONS\",\n      \"buttons\": [\n        {\n          \"type\": \"FLOW\",\n          \"text\": \"Open Flow\",\n          \"flow_id\": \"123456789\"\n        }\n      ]\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{base_url}}/api/templates"
+          }
+        },
+        {
+          "name": "Create Template - Authentication",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"otp_login_template\",\n  \"category\": \"AUTHENTICATION\",\n  \"language\": \"en_US\",\n  \"components\": [\n    {\n      \"type\": \"BODY\",\n      \"add_security_recommendation\": true\n    },\n    {\n      \"type\": \"BUTTONS\",\n      \"buttons\": [\n        {\n          \"type\": \"OTP\",\n          \"otp_type\": \"COPY_CODE\",\n          \"text\": \"Copy code\"\n        }\n      ]\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{base_url}}/api/templates"
+          }
+        },
+        {
+          "name": "List Templates (GET)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/api/templates?status=APPROVED&templateType=FLOW&limit=20&offset=0"
+          }
+        },
+        {
+          "name": "Get Template By UUID",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/api/templates/{{template_uuid}}"
+          }
+        },
+        {
+          "name": "Update Template (PATCH)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"category\": \"MARKETING\",\n  \"components\": [\n    {\n      \"type\": \"BODY\",\n      \"text\": \"Updated template body text {{1}}\"\n    },\n    {\n      \"type\": \"BUTTONS\",\n      \"buttons\": [\n        {\n          \"type\": \"QUICK_REPLY\",\n          \"text\": \"Interested\"\n        }\n      ]\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{base_url}}/api/templates/{{template_uuid}}"
+          }
+        },
+        {
+          "name": "Delete Template",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": "{{base_url}}/api/templates/{{template_uuid}}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Templates (Legacy aliases)",
+      "item": [
+        {
+          "name": "Create Template (Legacy /create)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"legacy_create_template\",\n  \"category\": \"UTILITY\",\n  \"language\": \"en_US\",\n  \"components\": [\n    {\n      \"type\": \"BODY\",\n      \"text\": \"Legacy create endpoint payload\"\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{base_url}}/api/templates/create"
+          }
+        },
+        {
+          "name": "List Templates (Legacy /list)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"PENDING\",\n  \"search\": \"welcome\",\n  \"limit\": 10,\n  \"offset\": 0\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{base_url}}/api/templates/list"
+          }
+        },
+        {
+          "name": "Update Template (Legacy /update/:uuid)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"components\": [\n    {\n      \"type\": \"BODY\",\n      \"text\": \"Updated via legacy endpoint\"\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{base_url}}/api/templates/update/{{template_uuid}}"
+          }
+        },
+        {
+          "name": "Sync Templates (Legacy /sync)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{base_url}}/api/templates/sync"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Sync",
+      "item": [
+        {
+          "name": "Sync Templates From Meta",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{base_url}}/api/templates/sync"
+          }
+        }
+      ]
+    }
+  ]
+}

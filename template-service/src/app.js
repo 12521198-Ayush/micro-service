@@ -1,45 +1,47 @@
 import express from 'express';
-import 'dotenv/config';
 import helmet from 'helmet';
 import cors from 'cors';
 import morgan from 'morgan';
-import templateRoutes from './routes/templates.js';
-import { connectRedis } from './config/redis.js';
+import templatesRouter from './routes/templates.js';
+import requestContext from './middleware/requestContext.js';
+import notFoundHandler from './middleware/notFound.js';
+import errorHandler from './middleware/errorHandler.js';
+import { checkDatabaseHealth } from './config/database.js';
+import { isRedisReady } from './config/redis.js';
 
 const app = express();
 
-// Initialize Redis connection
-connectRedis();
+app.disable('x-powered-by');
 
-// Middleware
 app.use(helmet());
 app.use(cors());
-app.use(morgan('dev'));
-app.use(express.json());
+app.use(morgan('combined'));
+app.use(requestContext);
+app.use(express.json({ limit: '2mb' }));
 
-// Health check endpoint (no auth required)
-app.get('/health', (req, res) => {
-  res.json({
-    status: 'Template Service is running',
+app.get('/health', async (req, res) => {
+  let database = 'up';
+
+  try {
+    await checkDatabaseHealth();
+  } catch (error) {
+    database = 'down';
+  }
+
+  res.status(database === 'up' ? 200 : 503).json({
+    success: database === 'up',
+    service: 'template-service',
     timestamp: new Date().toISOString(),
+    dependencies: {
+      database,
+      redis: isRedisReady() ? 'up' : 'degraded',
+    },
   });
 });
 
-// Routes
-app.use('/api/templates', templateRoutes);
+app.use('/api/templates', templatesRouter);
 
-// 404 handler
-app.use((req, res) => {
-  res.status(404).json({ error: 'Route not found' });
-});
+app.use(notFoundHandler);
+app.use(errorHandler);
 
-// Error handler
-app.use((err, req, res, next) => {
-  res.status(500).json({ error: 'Internal server error' });
-});
-
-const PORT = process.env.PORT || 3003;
-
-app.listen(PORT, () => {
-  console.log(`Template Service started on port ${PORT}`);
-});
+export default app;

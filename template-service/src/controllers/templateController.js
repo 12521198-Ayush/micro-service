@@ -1,512 +1,637 @@
-import axios from 'axios';
-import TemplateModel from '../models/templateModel.js';
+import env from '../config/env.js';
+import logger from '../config/logger.js';
 import { cache } from '../config/redis.js';
+import { metaTemplateApi } from '../config/metaApi.js';
+import AppError from '../errors/AppError.js';
+import TemplateModel from '../models/templateModel.js';
 import cacheKeys from '../utils/cacheKeys.js';
+import {
+  SUPPORTED_TEMPLATE_MEDIA_MIME_TYPES,
+  ensureFileNameHasExtension,
+  isSupportedTemplateMediaType,
+  normalizeMimeType,
+  sanitizeUploadFileName,
+} from '../utils/mediaUpload.js';
+import { removeUndefinedDeep } from '../utils/object.js';
+import {
+  normalizeTemplatePayload,
+  validateAndNormalizeTemplatePayload,
+} from '../utils/templateValidator.js';
+import { deriveTemplateType } from '../utils/templateType.js';
+import {
+  normalizeInternalStatus,
+  normalizeMetaStatus,
+} from '../utils/templateStatus.js';
 
-/**
- * Meta WhatsApp API Configuration
- */
-const META_API_CONFIG = {
-  baseURL: 'https://graph.facebook.com',
-  version: process.env.META_API_VERSION || 'v20.0',
-  accessToken: process.env.META_ACCESS_TOKEN,
+const DEFAULT_PAGE_LIMIT = 20;
+const MAX_PAGE_LIMIT = 100;
+const DEFAULT_MEDIA_FILE_NAME = 'template_media';
+
+const serializeFilters = (filters) => {
+  const ordered = Object.keys(filters)
+    .sort()
+    .reduce((result, key) => {
+      result[key] = filters[key];
+      return result;
+    }, {});
+
+  return JSON.stringify(ordered);
 };
 
-/**
- * Initialize Axios instance for Meta API calls
- */
-const metaApiClient = axios.create({
-  baseURL: `${META_API_CONFIG.baseURL}/${META_API_CONFIG.version}`,
-  headers: {
-    'Content-Type': 'application/json',
-    'Authorization': `Bearer ${META_API_CONFIG.accessToken}`,
-  },
-});
+const getUserContext = (req) => {
+  const userId = req.user?.id || req.user?.userId;
+  const metaBusinessAccountId =
+    req.user?.metaBusinessAccountId || env.defaultMetaBusinessAccountId || null;
 
-
-/**
- * Create WhatsApp Message Template
- * POST /api/templates/create
- *
- * @param {Object} req - Express request object
- * @param {Object} req.body - Template payload
- * @param {Object} res - Express response object
- */
-export const createTemplate = async (req, res) => {
-  try {
-    const payload = req.body;
-    const userId = req.user?.id || req.user?.userId;
-    const businessAccountId = req.user?.metaBusinessAccountId;
-
-    // Validate business account ID
-    if (!businessAccountId) {
-      return res.status(400).json({
-        error: 'metaBusinessAccountId not found in token'
-      });
-    }
-
-    // Call Meta API directly with user payload
-    const metaResponse = await metaApiClient.post(
-      `/${businessAccountId}/message_templates`,
-      payload
-    );
-
-    // Save to database on successful Meta API response
-    let dbResult;
-    try {
-      dbResult = await TemplateModel.createTemplate(
-        {
-          metaTemplateId: metaResponse.data.id,
-          name: payload.name,
-          category: payload.category,
-          language: payload.language,
-          components: payload.components,
-          parameterFormat: payload.parameter_format,
-          status: metaResponse.data.status || 'Pending'
-        },
-        userId
-      );
-    } catch (dbError) {
-      console.error('Database save error (non-critical):', dbError.message);
-    }
-
-    // Invalidate user templates cache
-    await cache.deletePattern(cacheKeys.patterns.userTemplates(userId));
-
-    // Return Meta API response
-    return res.status(201).json({
-      ...metaResponse.data,
-      databaseId: dbResult?.id,
-      uuid: dbResult?.uuid
+  if (!userId) {
+    throw new AppError(401, 'Authenticated user id is required', {
+      code: 'AUTH_USER_CONTEXT_MISSING',
     });
-  } catch (error) {
-    if (error.response) {
-      return res.status(error.response.status).json(error.response.data);
-    }
-    return res.status(500).json({
-      error: error.message
+  }
+
+  return {
+    userId,
+    metaBusinessAccountId,
+  };
+};
+
+const requireMetaBusinessAccountId = (metaBusinessAccountId) => {
+  if (!metaBusinessAccountId) {
+    throw new AppError(400, 'metaBusinessAccountId is missing from token/context', {
+      code: 'META_BUSINESS_ACCOUNT_ID_MISSING',
     });
   }
 };
 
-
-/**
- * List all templates with optional filters
- * POST /api/templates/list
- *
- * @param {Object} req - Express request object
- * @param {Object} req.body - Filter parameters (optional)
- * @param {string} req.body.status - Optional status filter (Pending, approve, rejected)
- * @param {string} req.body.name - Optional name filter (partial match)
- * @param {Object} res - Express response object
- */
-export const listTemplates = async (req, res) => {
-  try {
-    const { status = '', name = '' } = req.body;
-    const userId = req.user?.id || req.user?.userId;
-    
-    // Check cache first
-    const cacheKey = cacheKeys.userTemplates(userId, status, name);
-    const cachedData = await cache.get(cacheKey);
-    
-    if (cachedData) {
-      return res.status(200).json({
-        ...cachedData,
-        cached: true
-      });
-    }
-    
-    // Get templates from database with optional filters
-    const templates = await TemplateModel.getAllTemplates({ status, name });
-
-    const responseData = {
-      success: true,
-      count: templates.length,
-      data: templates
-    };
-
-    // Cache the result for 5 minutes
-    await cache.set(cacheKey, responseData, 300);
-
-    return res.status(200).json(responseData);
-  } catch (error) {
-    console.error('Error listing templates:', error);
-    return res.status(500).json({
-      success: false,
-      error: error.message
-    });
-  }
+const resolveMetaAppId = (req) => {
+  return (
+    req.user?.metaAppId ||
+    req.user?.appId ||
+    req.user?.meta_app_id ||
+    req.user?.app_id ||
+    env.metaAppId ||
+    null
+  );
 };
 
-
-/**
- * Update WhatsApp Message Template
- * POST /api/templates/update/:uuid
- *
- * @param {Object} req - Express request object
- * @param {string} req.params.uuid - Template UUID
- * @param {Object} req.body - Update payload
- * @param {Object} res - Express response object
- */
-export const updateTemplate = async (req, res) => {
-  try {
-    const { uuid } = req.params;
-    const userId = req.user?.id || req.user?.userId;
-    const payload = req.body;
-
-    // Get existing template from database
-    const template = await TemplateModel.getTemplateByUuid(uuid, userId);
-
-    if (!template) {
-      return res.status(404).json({
-        success: false,
-        error: 'Template not found'
-      });
-    }
-
-    // Build update request data
-    const requestData = {
-      category: template.status === 'approve' ? template.category : payload.category
-    };
-
-    // Add message TTL if provided
-    if (payload.customize_ttl && payload.message_send_ttl_seconds) {
-      requestData.message_send_ttl_seconds = payload.message_send_ttl_seconds;
-    }
-
-    // Initialize components array
-    if (!requestData.components) {
-      requestData.components = [];
-    }
-
-    // Handle HEADER component
-    if (payload.category !== 'AUTHENTICATION') {
-      if (payload.header?.format === 'TEXT') {
-        if (payload.header.text) {
-          const headerComponent = {
-            type: "HEADER",
-            format: payload.header.format,
-            text: payload.header.text
-          };
-
-          if (payload.header.example && payload.header.example.length > 0) {
-            headerComponent.example = { header_text: payload.header.example };
-          }
-
-          requestData.components.push(headerComponent);
-        }
-      } else if (['IMAGE', 'VIDEO', 'DOCUMENT'].includes(payload.header?.format)) {
-        if (payload.header.example) {
-          // Use existing header from metadata if no new example provided
-          requestData.components.push({
-            type: "HEADER",
-            format: payload.header.format,
-            example: {
-              header_handle: [payload.header.example]
-            }
-          });
-        } else {
-          // Extract existing header from metadata
-          const metadata = template.metadata;
-          if (metadata?.components) {
-            const existingHeader = metadata.components.find(c => c.type === 'HEADER');
-            if (existingHeader) {
-              requestData.components.push(existingHeader);
-            }
-          }
-        }
-      }
-    }
-
-    // Handle BODY component
-    if (payload.category === 'AUTHENTICATION') {
-      requestData.components.push({
-        type: "BODY",
-        add_security_recommendation: payload.body?.add_security_recommendation
-      });
-    } else {
-      if (payload.body?.text) {
-        const bodyComponent = {
-          type: "BODY",
-          text: payload.body.text
-        };
-
-        if (payload.body.example && payload.body.example.length > 0) {
-          bodyComponent.example = { body_text: [payload.body.example] };
-        }
-
-        requestData.components.push(bodyComponent);
-      }
-    }
-
-    // Handle FOOTER component
-    if (payload.footer) {
-      if (payload.category !== 'AUTHENTICATION') {
-        if (payload.footer.text) {
-          requestData.components.push({
-            type: "FOOTER",
-            text: payload.footer.text
-          });
-        }
-      } else {
-        requestData.components.push({
-          type: "FOOTER",
-          code_expiration_minutes: payload.footer.code_expiration_minutes
-        });
-      }
-    }
-
-    // Handle BUTTONS component
-    if (payload.category !== 'AUTHENTICATION') {
-      if (payload.buttons && payload.buttons.length > 0) {
-        const buttonsComponent = {
-          type: 'BUTTONS',
-          buttons: []
-        };
-
-        const quickReplyButtons = [];
-        const otherButtons = [];
-
-        payload.buttons.forEach(button => {
-          if (button.type === 'QUICK_REPLY') {
-            quickReplyButtons.push({
-              type: button.type,
-              text: button.text
-            });
-          } else if (button.type === 'URL') {
-            otherButtons.push({
-              type: button.type,
-              text: button.text,
-              url: button.url
-            });
-          } else if (button.type === 'PHONE_NUMBER') {
-            otherButtons.push({
-              type: button.type,
-              text: button.text,
-              phone_number: (button.country || '') + button.phone_number
-            });
-          } else if (button.type === 'COPY_CODE') {
-            otherButtons.push({
-              type: button.type,
-              example: button.example
-            });
-          }
-        });
-
-        // Quick reply buttons first, then other buttons
-        buttonsComponent.buttons = [...quickReplyButtons, ...otherButtons];
-        requestData.components.push(buttonsComponent);
-      }
-    } else {
-      // Authentication button
-      if (payload.authentication_button) {
-        const button = {
-          type: payload.authentication_button.type,
-          otp_type: payload.authentication_button.otp_type,
-          text: payload.authentication_button.text
-        };
-
-        if (payload.authentication_button.otp_type !== 'copy_code') {
-          button.autofill_text = payload.authentication_button.autofill_text;
-          button.supported_apps = payload.authentication_button.supported_apps;
-        }
-
-        if (payload.authentication_button.otp_type === 'zero_tap') {
-          button.zero_tap_terms_accepted = payload.authentication_button.zero_tap_terms_accepted;
-        }
-
-        requestData.components.push({
-          type: 'BUTTONS',
-          buttons: [button]
-        });
-      }
-    }
-
-    // Call Meta API to update template
-    const metaResponse = await metaApiClient.post(
-      `/${template.metaTemplateId}`,
-      requestData
-    );
-
-    // Update template in database
-    const updatedTemplate = await TemplateModel.updateTemplate(
-      uuid,
+const requireMetaAppId = (metaAppId) => {
+  if (!metaAppId) {
+    throw new AppError(
+      400,
+      'metaAppId is required. Add META_APP_ID to env or include appId/metaAppId in token.',
       {
-        category: template.status === 'approve' ? template.category : payload.category,
-        metadata: requestData.components,
-        status: 'Pending' // Reset to Pending after update
-      },
-      userId
-    );
-
-    return res.status(200).json({
-      success: true,
-      message: 'Template updated successfully',
-      data: {
-        ...metaResponse.data,
-        template: updatedTemplate
+        code: 'META_APP_ID_MISSING',
       }
-    });
-  } catch (error) {
-    console.error('Error updating template:', error);
-    if (error.response) {
-      return res.status(error.response.status).json({
-        success: false,
-        error: error.response.data
-      });
-    }
-    return res.status(500).json({
-      success: false,
-      error: error.message
-    });
+    );
   }
 };
 
+const normalizeListFilters = (raw = {}) => {
+  const normalizedStatus = raw.status ? normalizeInternalStatus(raw.status) : null;
 
-/**
- * Sync templates from Meta API to Database
- * POST /api/templates/sync
- *
- * @param {Object} req - Express request object
- * @param {Object} res - Express response object
- */
-export const syncTemplates = async (req, res) => {
-  try {
-    const userId = req.user?.id || req.user?.userId;
-    const businessAccountId = req.user?.metaBusinessAccountId;
+  if (raw.status && !normalizedStatus) {
+    throw new AppError(400, `Invalid status filter: ${raw.status}`, {
+      code: 'INVALID_STATUS_FILTER',
+    });
+  }
 
-    // Validate business account ID
-    if (!businessAccountId) {
-      return res.status(400).json({
-        success: false,
-        error: 'metaBusinessAccountId not found in token'
-      });
-    }
+  return {
+    status: normalizedStatus,
+    category: raw.category ? String(raw.category).toUpperCase() : null,
+    templateType: raw.templateType
+      ? String(raw.templateType).toUpperCase()
+      : raw.type
+      ? String(raw.type).toUpperCase()
+      : null,
+    language: raw.language ? String(raw.language) : null,
+    search: raw.search
+      ? String(raw.search)
+      : raw.name
+      ? String(raw.name)
+      : null,
+    limit: Math.min(
+      Math.max(Number.parseInt(raw.limit, 10) || DEFAULT_PAGE_LIMIT, 1),
+      MAX_PAGE_LIMIT
+    ),
+    offset: Math.max(Number.parseInt(raw.offset, 10) || 0, 0),
+  };
+};
 
-    let allTemplates = [];
-    let url = `/${businessAccountId}/message_templates`;
-    let hasNextPage = true;
+const invalidateUserTemplateCache = async (userId) => {
+  await cache.deletePattern(cacheKeys.patterns.userTemplates(userId));
+};
 
-    // Fetch all templates from Meta API with pagination
-    while (hasNextPage) {
-      try {
-        const response = await metaApiClient.get(url);
-        const { data, paging } = response.data;
+const buildTemplatePayloadFromMeta = (metaTemplate) => {
+  const category = String(metaTemplate.category || '').toUpperCase() || 'UTILITY';
+  const components = Array.isArray(metaTemplate.components)
+    ? metaTemplate.components
+    : [];
 
-        if (data && data.length > 0) {
-          allTemplates = allTemplates.concat(data);
-        }
+  const templateType = deriveTemplateType({
+    category,
+    components,
+  });
 
-        // Check if there's a next page
-        if (paging && paging.next) {
-          // Extract the URL path after the base URL
-          const nextUrl = new URL(paging.next);
-          url = nextUrl.pathname.replace(`/${META_API_CONFIG.version}`, '') + nextUrl.search;
-        } else {
-          hasNextPage = false;
-        }
-      } catch (error) {
-        console.error('Error fetching templates from Meta API:', error);
-        hasNextPage = false;
+  return {
+    metaTemplateId: metaTemplate.id,
+    name: metaTemplate.name,
+    language: metaTemplate.language,
+    category,
+    templateType,
+    status: normalizeMetaStatus(metaTemplate.status),
+    qualityScore: metaTemplate.quality_score || null,
+    components,
+    parameterFormat: metaTemplate.parameter_format || null,
+    rawMetaResponse: metaTemplate,
+    lastSyncedAt: new Date(),
+  };
+};
+
+export const createTemplate = async (req, res) => {
+  const { userId, metaBusinessAccountId } = getUserContext(req);
+  requireMetaBusinessAccountId(metaBusinessAccountId);
+
+  const validation = validateAndNormalizeTemplatePayload(req.body, {
+    forUpdate: false,
+  });
+
+  if (!validation.isValid) {
+    throw new AppError(422, 'Template payload validation failed', {
+      code: 'INVALID_TEMPLATE_PAYLOAD',
+      details: validation.errors,
+    });
+  }
+
+  const payload = validation.normalizedPayload;
+
+  const metaResponse = await metaTemplateApi.createTemplate(
+    metaBusinessAccountId,
+    payload
+  );
+
+  const status = normalizeMetaStatus(metaResponse.status);
+
+  const template = await TemplateModel.createTemplate({
+    userId,
+    metaBusinessAccountId,
+    metaTemplateId: metaResponse.id,
+    name: payload.name,
+    language: payload.language,
+    category: payload.category,
+    templateType: validation.templateType,
+    status,
+    qualityScore: metaResponse.quality_score || null,
+    components: payload.components,
+    parameterFormat: payload.parameter_format || null,
+    rawPayload: payload,
+    rawMetaResponse: metaResponse,
+    lastSyncedAt: new Date(),
+  });
+
+  await invalidateUserTemplateCache(userId);
+
+  res.status(201).json({
+    success: true,
+    data: {
+      template,
+      meta: metaResponse,
+    },
+  });
+};
+
+export const uploadTemplateMedia = async (req, res) => {
+  const { userId } = getUserContext(req);
+  const metaAppId = resolveMetaAppId(req);
+
+  requireMetaAppId(metaAppId);
+
+  const uploadedFile = req.file;
+  if (!uploadedFile) {
+    throw new AppError(422, "Multipart field 'file' is required.", {
+      code: 'MEDIA_FILE_REQUIRED',
+      details: {
+        expectedField: 'file',
+      },
+    });
+  }
+
+  const fileBuffer = uploadedFile.buffer;
+  const fileSize = fileBuffer?.length || 0;
+
+  if (fileSize <= 0) {
+    throw new AppError(422, 'Uploaded file is empty.', {
+      code: 'EMPTY_MEDIA_FILE',
+    });
+  }
+
+  const mimeType =
+    normalizeMimeType(req.body?.fileType) ||
+    normalizeMimeType(uploadedFile.mimetype);
+
+  if (!mimeType) {
+    throw new AppError(422, 'Unable to determine file MIME type. Provide fileType.', {
+      code: 'MEDIA_TYPE_REQUIRED',
+    });
+  }
+
+  if (!isSupportedTemplateMediaType(mimeType)) {
+    throw new AppError(422, `Unsupported fileType '${mimeType}'.`, {
+      code: 'UNSUPPORTED_MEDIA_TYPE',
+      details: {
+        supportedMimeTypes: SUPPORTED_TEMPLATE_MEDIA_MIME_TYPES,
+      },
+    });
+  }
+
+  const preferredFileName =
+    req.body?.fileName || uploadedFile.originalname || DEFAULT_MEDIA_FILE_NAME;
+  const sanitizedFileName = sanitizeUploadFileName(
+    preferredFileName,
+    DEFAULT_MEDIA_FILE_NAME
+  );
+  const fileName = ensureFileNameHasExtension(sanitizedFileName, mimeType);
+
+  const uploadSession = await metaTemplateApi.createUploadSession(metaAppId, {
+    fileName,
+    fileLength: fileSize,
+    fileType: mimeType,
+  });
+
+  const uploadSessionId = uploadSession?.id || uploadSession?.upload_session_id;
+
+  if (!uploadSessionId) {
+    throw new AppError(502, 'Meta upload session did not return an id.', {
+      code: 'META_UPLOAD_SESSION_INVALID',
+      details: uploadSession,
+    });
+  }
+
+  const uploadResult = await metaTemplateApi.uploadFileChunk(
+    uploadSessionId,
+    fileBuffer,
+    0
+  );
+  const headerHandle = uploadResult?.h || uploadResult?.handle || null;
+
+  if (!headerHandle) {
+    throw new AppError(502, 'Meta upload did not return a media handle.', {
+      code: 'META_MEDIA_HANDLE_MISSING',
+      details: uploadResult,
+    });
+  }
+
+  logger.info('Template media upload completed', {
+    userId,
+    metaAppId,
+    fileName,
+    fileSize,
+    mimeType,
+  });
+
+  res.status(201).json({
+    success: true,
+    data: {
+      headerHandle,
+      header_handle: headerHandle,
+      example: {
+        header_handle: [headerHandle],
+      },
+      mimeType,
+      fileName,
+      fileSize,
+      uploadSessionId,
+    },
+  });
+};
+
+export const listTemplates = async (req, res) => {
+  const { userId } = getUserContext(req);
+
+  const rawFilters = req.method === 'GET' ? req.query : req.body || {};
+  const filters = normalizeListFilters(rawFilters);
+
+  const cacheKey = cacheKeys.templateList(userId, serializeFilters(filters));
+  const cached = await cache.get(cacheKey);
+
+  if (cached) {
+    res.status(200).json({
+      ...cached,
+      cached: true,
+    });
+    return;
+  }
+
+  const result = await TemplateModel.listTemplates(userId, filters);
+
+  const response = {
+    success: true,
+    count: result.data.length,
+    pagination: result.pagination,
+    data: result.data,
+  };
+
+  await cache.set(cacheKey, response, 300);
+
+  res.status(200).json(response);
+};
+
+export const getTemplateByUuid = async (req, res) => {
+  const { userId } = getUserContext(req);
+  const { uuid } = req.params;
+
+  const cacheKey = cacheKeys.templateByUuid(userId, uuid);
+  const cached = await cache.get(cacheKey);
+
+  if (cached) {
+    res.status(200).json({
+      success: true,
+      data: cached,
+      cached: true,
+    });
+    return;
+  }
+
+  const template = await TemplateModel.getTemplateByUuid(uuid, userId);
+
+  if (!template) {
+    throw new AppError(404, 'Template not found', {
+      code: 'TEMPLATE_NOT_FOUND',
+    });
+  }
+
+  await cache.set(cacheKey, template, 300);
+
+  res.status(200).json({
+    success: true,
+    data: template,
+  });
+};
+
+export const updateTemplate = async (req, res) => {
+  const { userId } = getUserContext(req);
+  const { uuid } = req.params;
+
+  const existingTemplate = await TemplateModel.getTemplateByUuid(uuid, userId);
+
+  if (!existingTemplate) {
+    throw new AppError(404, 'Template not found', {
+      code: 'TEMPLATE_NOT_FOUND',
+    });
+  }
+
+  if (!existingTemplate.metaTemplateId) {
+    throw new AppError(409, 'Template is missing Meta template id and cannot be updated', {
+      code: 'META_TEMPLATE_ID_MISSING',
+    });
+  }
+
+  const validation = validateAndNormalizeTemplatePayload(req.body, {
+    forUpdate: true,
+  });
+
+  if (!validation.isValid) {
+    throw new AppError(422, 'Template payload validation failed', {
+      code: 'INVALID_TEMPLATE_PAYLOAD',
+      details: validation.errors,
+    });
+  }
+
+  const normalizedPatch = validation.normalizedPayload;
+
+  const metaPayload = removeUndefinedDeep({
+    category: normalizedPatch.category,
+    components: normalizedPatch.components,
+    message_send_ttl_seconds: normalizedPatch.message_send_ttl_seconds,
+  });
+
+  if (Object.keys(metaPayload).length === 0) {
+    throw new AppError(400, 'Nothing to update. Provide category and/or components.', {
+      code: 'EMPTY_UPDATE_PAYLOAD',
+    });
+  }
+
+  const metaResponse = await metaTemplateApi.updateTemplate(
+    existingTemplate.metaTemplateId,
+    metaPayload
+  );
+
+  const mergedCategory = normalizedPatch.category || existingTemplate.category;
+  const mergedComponents = normalizedPatch.components || existingTemplate.components;
+
+  const updatedTemplate = await TemplateModel.updateTemplate(uuid, userId, {
+    category: mergedCategory,
+    templateType: deriveTemplateType({
+      category: mergedCategory,
+      components: mergedComponents,
+    }),
+    status: 'PENDING',
+    components: mergedComponents,
+    parameterFormat:
+      normalizedPatch.parameter_format || existingTemplate.parameterFormat,
+    rawPayload: removeUndefinedDeep({
+      ...existingTemplate.rawPayload,
+      ...normalizedPatch,
+    }),
+    rawMetaResponse: metaResponse,
+    lastSyncedAt: new Date(),
+  });
+
+  await invalidateUserTemplateCache(userId);
+
+  res.status(200).json({
+    success: true,
+    message: 'Template updated successfully',
+    data: {
+      template: updatedTemplate,
+      meta: metaResponse,
+    },
+  });
+};
+
+export const deleteTemplate = async (req, res) => {
+  const { userId, metaBusinessAccountId } = getUserContext(req);
+  const { uuid } = req.params;
+
+  const template = await TemplateModel.getTemplateByUuid(uuid, userId);
+
+  if (!template) {
+    throw new AppError(404, 'Template not found', {
+      code: 'TEMPLATE_NOT_FOUND',
+    });
+  }
+
+  let metaResponse = null;
+
+  if (template.metaTemplateId) {
+    try {
+      metaResponse = await metaTemplateApi.deleteTemplateByMetaId(
+        template.metaTemplateId
+      );
+    } catch (error) {
+      if (error.statusCode !== 404) {
+        throw error;
       }
     }
+  }
 
-    // Sync templates to database
-    const syncResults = {
-      total: allTemplates.length,
-      synced: 0,
-      skipped: 0,
-      failed: 0,
-      details: []
-    };
+  if (!metaResponse && metaBusinessAccountId) {
+    try {
+      metaResponse = await metaTemplateApi.deleteTemplateByName(
+        metaBusinessAccountId,
+        template.name
+      );
+    } catch (error) {
+      if (error.statusCode !== 404) {
+        throw error;
+      }
+    }
+  }
 
-    // Map Meta status to database status
-    const mapMetaStatus = (metaStatus) => {
-      const statusMap = {
-        'APPROVED': 'approve',
-        'REJECTED': 'rejected',
-        'PENDING': 'Pending',
-        'PAUSED': 'Pending',
-        'DISABLED': 'rejected'
-      };
-      return statusMap[metaStatus] || 'Pending';
-    };
+  const deleted = await TemplateModel.softDeleteTemplate(uuid, userId);
 
-    for (const template of allTemplates) {
+  if (!deleted) {
+    throw new AppError(404, 'Template already deleted', {
+      code: 'TEMPLATE_ALREADY_DELETED',
+    });
+  }
+
+  await invalidateUserTemplateCache(userId);
+
+  res.status(200).json({
+    success: true,
+    message: 'Template deleted successfully',
+    data: {
+      uuid,
+      meta: metaResponse,
+    },
+  });
+};
+
+export const syncTemplates = async (req, res) => {
+  const { userId, metaBusinessAccountId } = getUserContext(req);
+  requireMetaBusinessAccountId(metaBusinessAccountId);
+
+  const summary = {
+    fetched: 0,
+    created: 0,
+    updated: 0,
+    failed: 0,
+    errors: [],
+  };
+
+  let after = null;
+  let hasNextPage = true;
+
+  while (hasNextPage) {
+    const response = await metaTemplateApi.listTemplates(metaBusinessAccountId, {
+      after,
+      limit: 50,
+    });
+
+    const templates = Array.isArray(response.data) ? response.data : [];
+    summary.fetched += templates.length;
+
+    for (const metaTemplate of templates) {
       try {
-        // Check if template already exists in database
-        const existingTemplate = await TemplateModel.getTemplateByMetaId(template.id);
+        const mapped = buildTemplatePayloadFromMeta(metaTemplate);
 
-        if (existingTemplate) {
-          // Template already exists, skip
-          syncResults.skipped++;
-          syncResults.details.push({
-            metaId: template.id,
-            name: template.name,
-            status: 'skipped',
-            reason: 'Already exists in database'
-          });
+        const result = await TemplateModel.upsertFromMeta({
+          userId,
+          metaBusinessAccountId,
+          ...mapped,
+        });
+
+        if (result.action === 'created') {
+          summary.created += 1;
         } else {
-          // Create new template in database
-          const dbResult = await TemplateModel.createTemplate(
-            {
-              metaTemplateId: template.id,
-              name: template.name,
-              category: template.category,
-              language: template.language,
-              components: template.components,
-              parameterFormat: template.parameter_format,
-              status: mapMetaStatus(template.status)
-            },
-            userId
-          );
-
-          syncResults.synced++;
-          syncResults.details.push({
-            metaId: template.id,
-            name: template.name,
-            category: template.category,
-            language: template.language,
-            metaStatus: template.status,
-            dbStatus: mapMetaStatus(template.status),
-            status: 'synced',
-            databaseId: dbResult.id,
-            uuid: dbResult.uuid,
-            metadata: {
-              components: template.components,
-              parameter_format: template.parameter_format
-            },
-            createdAt: dbResult.createdAt
-          });
+          summary.updated += 1;
         }
       } catch (error) {
-        syncResults.failed++;
-        syncResults.details.push({
-          metaId: template.id,
-          name: template.name,
-          status: 'failed',
-          error: error.message
+        summary.failed += 1;
+        summary.errors.push({
+          metaTemplateId: metaTemplate.id,
+          name: metaTemplate.name,
+          message: error.message,
         });
       }
     }
 
-    return res.status(200).json({
-      success: true,
-      message: 'Template sync completed',
-      results: syncResults
-    });
-  } catch (error) {
-    console.error('Error syncing templates:', error);
-    if (error.response) {
-      return res.status(error.response.status).json({
-        success: false,
-        error: error.response.data
-      });
-    }
-    return res.status(500).json({
-      success: false,
-      error: error.message
-    });
+    after = response.paging?.cursors?.after || null;
+    hasNextPage = Boolean(response.paging?.next && after);
   }
+
+  await invalidateUserTemplateCache(userId);
+
+  logger.info('Template sync completed', {
+    userId,
+    metaBusinessAccountId,
+    ...summary,
+  });
+
+  res.status(200).json({
+    success: true,
+    message: 'Template sync completed',
+    data: summary,
+  });
 };
 
+export const validateTemplatePayloadController = async (req, res) => {
+  const validation = validateAndNormalizeTemplatePayload(req.body, {
+    forUpdate: Boolean(req.query.forUpdate === 'true' || req.body?.forUpdate),
+  });
+
+  res.status(validation.isValid ? 200 : 422).json({
+    success: validation.isValid,
+    ...validation,
+  });
+};
+
+export const getTemplateCapabilities = async (req, res) => {
+  res.status(200).json({
+    success: true,
+    data: {
+      categories: ['MARKETING', 'UTILITY', 'AUTHENTICATION'],
+      templateTypes: ['STANDARD', 'CAROUSEL', 'FLOW', 'AUTHENTICATION'],
+      components: [
+        'HEADER',
+        'BODY',
+        'FOOTER',
+        'BUTTONS',
+        'CAROUSEL',
+        'LIMITED_TIME_OFFER',
+      ],
+      headerFormats: ['TEXT', 'IMAGE', 'VIDEO', 'DOCUMENT', 'LOCATION'],
+      buttonTypes: [
+        'QUICK_REPLY',
+        'URL',
+        'PHONE_NUMBER',
+        'COPY_CODE',
+        'OTP',
+        'FLOW',
+        'FLOW_ACTION',
+        'CATALOG',
+        'SPM',
+      ],
+      mediaUpload: {
+        endpoint: '/api/templates/media/upload',
+        method: 'POST',
+        contentType: 'multipart/form-data',
+        fieldName: 'file',
+        supportedMimeTypes: SUPPORTED_TEMPLATE_MEDIA_MIME_TYPES,
+        maxBytes: env.templateMediaMaxBytes,
+      },
+      notes: [
+        'Unknown/new component types are accepted and passed through to Meta API when structurally valid.',
+        'Flow templates are inferred from BUTTONS containing FLOW/FLOW_ACTION types.',
+        'Carousel templates are inferred from CAROUSEL components.',
+        'Carousel templates must include one top-level BODY component and each carousel card must include HEADER + BODY components.',
+        'Carousel card HEADER format must be IMAGE or VIDEO, with example.header_handle.',
+        'Upload media with multipart form-data on /api/templates/media/upload and use returned header_handle in template examples.',
+      ],
+    },
+  });
+};
+
+export const normalizeIncomingTemplatePayload = (payload) => {
+  return normalizeTemplatePayload(payload, { forUpdate: false });
+};

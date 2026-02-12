@@ -1,391 +1,211 @@
-# API Testing Documentation - Template Service
+# Template Service API Testing Guide
 
 ## Base URL
-```
-http://localhost:3001/api/templates
-```
+`http://localhost:3003/api/templates`
 
 ## Authentication
-All endpoints require a JWT token in the Authorization header:
-```
-Authorization: Bearer <your_jwt_token>
+All template endpoints require a bearer token.
+
+`Authorization: Bearer <JWT_TOKEN>`
+
+Token payload should include:
+- `id` or `userId`
+- `metaBusinessAccountId` (recommended; fallback uses `META_BUSINESS_ACCOUNT_ID` from env)
+- `metaAppId` (recommended; fallback uses `META_APP_ID` from env)
+
+## Health Check
+### GET `/health`
+Checks service and dependencies.
+
+```bash
+curl http://localhost:3003/health
 ```
 
 ---
 
-## 1. List All Templates (with Optional Filters)
+## 1. Capabilities
+### GET `/api/templates/capabilities`
+Returns supported categories, template types, components, and button types.
 
-### Endpoint
-```
-POST /api/templates/list
-```
-
-### Headers
-```
-Content-Type: application/json
-Authorization: Bearer <your_jwt_token>
-```
-
-### Request Body (All Optional)
-```json
-{
-  "status": "approve",        // Optional: "Pending", "approve", or "rejected"
-  "name": "welcome"           // Optional: partial name search
-}
-```
-
-### Test Cases
-
-#### Test 1: List All Templates (No Filters)
-**cURL Command:**
 ```bash
-curl -X POST http://localhost:3001/api/templates/list \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
-  -d '{}'
-```
-
-**Expected Response (200 OK):**
-```json
-{
-  "success": true,
-  "count": 10,
-  "data": [
-    {
-      "id": 1,
-      "uuid": "550e8400-e29b-41d4-a716-446655440000",
-      "metaTemplateId": "123456789",
-      "name": "welcome_message",
-      "category": "MARKETING",
-      "language": "en",
-      "status": "approve",
-      "metadata": {
-        "components": [...],
-        "parameter_format": {...},
-        "created_via": "api"
-      },
-      "createdAt": "2025-12-18T10:30:00.000Z",
-      "updatedAt": "2025-12-18T10:30:00.000Z",
-      "userId": 123
-    }
-  ]
-}
+curl -X GET http://localhost:3003/api/templates/capabilities \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN"
 ```
 
 ---
 
-#### Test 2: Filter by Status (Approved Templates)
-**cURL Command:**
+## 2. Validate Payload (No Meta Write)
+### POST `/api/templates/validate`
+Validates and normalizes a template payload.
+
 ```bash
-curl -X POST http://localhost:3001/api/templates/list \
+curl -X POST http://localhost:3003/api/templates/validate \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer YOUR_JWT_TOKEN" \
   -d '{
-    "status": "approve"
-  }'
-```
-
-**Expected Response (200 OK):**
-```json
-{
-  "success": true,
-  "count": 5,
-  "data": [
-    {
-      "id": 1,
-      "uuid": "550e8400-e29b-41d4-a716-446655440000",
-      "name": "welcome_message",
-      "status": "approve",
-      ...
-    }
-  ]
-}
-```
-
----
-
-#### Test 3: Filter by Status (Pending Templates)
-**cURL Command:**
-```bash
-curl -X POST http://localhost:3001/api/templates/list \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
-  -d '{
-    "status": "Pending"
-  }'
-```
-
----
-
-#### Test 4: Filter by Name (Partial Match)
-**cURL Command:**
-```bash
-curl -X POST http://localhost:3001/api/templates/list \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
-  -d '{
-    "name": "welcome"
-  }'
-```
-
-**Note:** This will return all templates with "welcome" anywhere in the name (case-insensitive partial match).
-
----
-
-#### Test 5: Filter by Both Status and Name
-**cURL Command:**
-```bash
-curl -X POST http://localhost:3001/api/templates/list \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
-  -d '{
-    "status": "approve",
-    "name": "newsletter"
-  }'
-```
-
----
-
-#### Test 6: No Token Provided (Unauthorized)
-**cURL Command:**
-```bash
-curl -X POST http://localhost:3001/api/templates/list \
-  -H "Content-Type: application/json" \
-  -d '{}'
-```
-
-**Expected Response (401 Unauthorized):**
-```json
-{
-  "error": "No token provided"
-}
-```
-
----
-
-#### Test 7: Invalid Token
-**cURL Command:**
-```bash
-curl -X POST http://localhost:3001/api/templates/list \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer INVALID_TOKEN" \
-  -d '{}'
-```
-
-**Expected Response (401 Unauthorized):**
-```json
-{
-  "error": "Invalid or expired token"
-}
-```
-
----
-
-## Postman Testing
-
-### Setup Collection
-
-1. **Create New Collection:** "Template Service API"
-
-2. **Set Collection Variables:**
-   - `base_url`: `http://localhost:3001`
-   - `jwt_token`: `<your_actual_token>`
-
-3. **Set Collection Authorization:**
-   - Type: Bearer Token
-   - Token: `{{jwt_token}}`
-
-### Request Examples
-
-#### Request 1: List All Templates
-```
-Method: POST
-URL: {{base_url}}/api/templates/list
-Headers:
-  - Content-Type: application/json
-  - Authorization: Bearer {{jwt_token}}
-Body (raw JSON):
-{}
-```
-
-#### Request 2: Filter by Status
-```
-Method: POST
-URL: {{base_url}}/api/templates/list
-Body (raw JSON):
-{
-  "status": "approve"
-}
-```
-
-#### Request 3: Filter by Name
-```
-Method: POST
-URL: {{base_url}}/api/templates/list
-Body (raw JSON):
-{
-  "name": "welcome"
-}
-```
-
-#### Request 4: Combined Filters
-```
-Method: POST
-URL: {{base_url}}/api/templates/list
-Body (raw JSON):
-{
-  "status": "Pending",
-  "name": "promo"
-}
-```
-
----
-
-## Testing with JavaScript/Node.js
-
-### Using Axios
-```javascript
-const axios = require('axios');
-
-const testListTemplates = async () => {
-  try {
-    const response = await axios.post(
-      'http://localhost:3001/api/templates/list',
-      {
-        status: 'approve',
-        name: 'welcome'
-      },
-      {
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer YOUR_JWT_TOKEN'
-        }
-      }
-    );
-    
-    console.log('Success:', response.data);
-    console.log('Total Templates:', response.data.count);
-  } catch (error) {
-    console.error('Error:', error.response?.data || error.message);
-  }
-};
-
-testListTemplates();
-```
-
-### Using Fetch API
-```javascript
-const testListTemplates = async () => {
-  try {
-    const response = await fetch('http://localhost:3001/api/templates/list', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer YOUR_JWT_TOKEN'
-      },
-      body: JSON.stringify({
-        status: 'approve',
-        name: 'welcome'
-      })
-    });
-    
-    const data = await response.json();
-    console.log('Response:', data);
-  } catch (error) {
-    console.error('Error:', error);
-  }
-};
-
-testListTemplates();
-```
-
----
-
-## Testing with Python
-
-### Using Requests Library
-```python
-import requests
-import json
-
-def test_list_templates():
-    url = "http://localhost:3001/api/templates/list"
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": "Bearer YOUR_JWT_TOKEN"
-    }
-    
-    # Test 1: No filters
-    response = requests.post(url, headers=headers, json={})
-    print(f"All Templates: {response.json()}")
-    
-    # Test 2: Filter by status
-    response = requests.post(url, headers=headers, json={"status": "approve"})
-    print(f"Approved Templates: {response.json()}")
-    
-    # Test 3: Filter by name
-    response = requests.post(url, headers=headers, json={"name": "welcome"})
-    print(f"Templates with 'welcome': {response.json()}")
-    
-    # Test 4: Both filters
-    response = requests.post(url, headers=headers, json={
-        "status": "Pending",
-        "name": "newsletter"
-    })
-    print(f"Filtered Templates: {response.json()}")
-
-if __name__ == "__main__":
-    test_list_templates()
-```
-
----
-
-## Response Codes
-
-| Code | Description | Scenario |
-|------|-------------|----------|
-| 200  | OK | Templates retrieved successfully |
-| 401  | Unauthorized | Missing or invalid JWT token |
-| 500  | Internal Server Error | Database error or server issue |
-
----
-
-## Testing Scenarios Checklist
-
-- [ ] List all templates without filters
-- [ ] Filter by status: "Pending"
-- [ ] Filter by status: "approve"
-- [ ] Filter by status: "rejected"
-- [ ] Filter by name (exact match)
-- [ ] Filter by name (partial match)
-- [ ] Combine status and name filters
-- [ ] Test with missing token
-- [ ] Test with invalid token
-- [ ] Test with expired token
-- [ ] Verify response structure
-- [ ] Verify data count matches array length
-- [ ] Test with empty database
-- [ ] Test with special characters in name filter
-- [ ] Test case sensitivity in name filter
-
----
-
-## Sample Test Data Setup
-
-Before testing, ensure you have templates in the database. You can use the create endpoint:
-
-```bash
-curl -X POST http://localhost:3001/api/templates/create \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
-  -d '{
-    "name": "welcome_template",
+    "name": "promo_template",
     "category": "MARKETING",
-    "language": "en",
+    "language": "en_US",
+    "components": [
+      {"type":"BODY","text":"Hello {{1}}"}
+    ]
+  }'
+```
+
+---
+
+## 3. Upload Media (Multipart, Get header_handle)
+### POST `/api/templates/media/upload`
+Uploads a local file via `multipart/form-data` and returns `header_handle` ready for template payloads.
+
+Supported `file` MIME types:
+- `image/jpeg`
+- `image/jpg`
+- `image/png`
+- `video/mp4`
+- `application/pdf`
+
+Form fields:
+- `file` (required, file field)
+- `fileName` (optional, overrides original filename)
+- `fileType` (optional, overrides MIME type)
+
+```bash
+curl -X POST http://localhost:3003/api/templates/media/upload \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+  -F "file=@C:/path/to/banner.jpg" \
+  -F "fileName=banner.jpg"
+```
+
+Example response shape:
+```json
+{
+  "success": true,
+  "data": {
+    "headerHandle": "<UPLOADED_FILE_HANDLE>",
+    "header_handle": "<UPLOADED_FILE_HANDLE>",
+    "example": {
+      "header_handle": ["<UPLOADED_FILE_HANDLE>"]
+    }
+  }
+}
+```
+
+---
+
+## 4. Create Template
+### POST `/api/templates`
+### Legacy Alias: POST `/api/templates/create`
+Creates a template in Meta and stores it locally.
+
+### Example: Standard Template
+```bash
+curl -X POST http://localhost:3003/api/templates \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+  -d '{
+    "name": "welcome_offer_standard",
+    "category": "MARKETING",
+    "language": "en_US",
     "components": [
       {
-        "type": "BODY",
-        "text": "Hello {{1}}, welcome to our service!"
+        "type":"BODY",
+        "text":"Hello {{1}}, welcome!",
+        "example":{"body_text":[["Rahul"]]}
+      },
+      {
+        "type":"BUTTONS",
+        "buttons":[{"type":"URL","text":"View","url":"https://example.com/promo"}]
+      }
+    ]
+  }'
+```
+
+### Example: Carousel Template
+```bash
+curl -X POST http://localhost:3003/api/templates \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+  -d '{
+    "name": "new_arrivals_carousel",
+    "category": "MARKETING",
+    "language": "en_US",
+    "components": [
+      {
+        "type":"BODY",
+        "text":"Check our latest arrivals"
+      },
+      {
+        "type": "CAROUSEL",
+        "cards": [
+          {
+            "components": [
+              {
+                "type":"HEADER",
+                "format":"IMAGE",
+                "example":{"header_handle":["4::aW1hZ2UvanBlZw==:ARa..."]}
+              },
+              {"type":"BODY","text":"Great product"},
+              {
+                "type":"BUTTONS",
+                "buttons":[{"type":"URL","text":"View","url":"https://example.com/item-1"}]
+              }
+            ]
+          },
+          {
+            "components": [
+              {
+                "type":"HEADER",
+                "format":"IMAGE",
+                "example":{"header_handle":["4::aW1hZ2UvanBlZw==:ARb..."]}
+              },
+              {"type":"BODY","text":"Another great product"},
+              {
+                "type":"BUTTONS",
+                "buttons":[{"type":"URL","text":"View","url":"https://example.com/item-2"}]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }'
+```
+Note: Replace `example.header_handle` values with real media handles from Meta upload APIs.
+
+### Example: Flow Template
+```bash
+curl -X POST http://localhost:3003/api/templates \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+  -d '{
+    "name": "lead_capture_flow",
+    "category": "UTILITY",
+    "language": "en_US",
+    "components": [
+      {"type":"BODY","text":"Continue in flow"},
+      {
+        "type":"BUTTONS",
+        "buttons":[{"type":"FLOW","text":"Start","flow_id":"123456"}]
+      }
+    ]
+  }'
+```
+
+### Example: Authentication Template
+```bash
+curl -X POST http://localhost:3003/api/templates \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+  -d '{
+    "name": "otp_login_template",
+    "category": "AUTHENTICATION",
+    "language": "en_US",
+    "components": [
+      {"type":"BODY","add_security_recommendation":true},
+      {
+        "type":"BUTTONS",
+        "buttons":[{"type":"OTP","otp_type":"COPY_CODE","text":"Copy code"}]
       }
     ]
   }'
@@ -393,84 +213,90 @@ curl -X POST http://localhost:3001/api/templates/create \
 
 ---
 
-## Automated Testing Script (Bash)
+## 5. List Templates
+### GET `/api/templates`
+### Legacy Alias: POST `/api/templates/list`
+
+Filters:
+- `status`
+- `category`
+- `templateType`
+- `language`
+- `search`
+- `limit`
+- `offset`
 
 ```bash
-#!/bin/bash
-
-BASE_URL="http://localhost:3001/api/templates"
-TOKEN="YOUR_JWT_TOKEN"
-
-echo "=== Testing List Templates API ==="
-
-echo -e "\n1. Test: List all templates"
-curl -s -X POST "$BASE_URL/list" \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $TOKEN" \
-  -d '{}' | jq '.'
-
-echo -e "\n2. Test: Filter by status (approve)"
-curl -s -X POST "$BASE_URL/list" \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $TOKEN" \
-  -d '{"status":"approve"}' | jq '.'
-
-echo -e "\n3. Test: Filter by name"
-curl -s -X POST "$BASE_URL/list" \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $TOKEN" \
-  -d '{"name":"welcome"}' | jq '.'
-
-echo -e "\n4. Test: No token (should fail)"
-curl -s -X POST "$BASE_URL/list" \
-  -H "Content-Type: application/json" \
-  -d '{}' | jq '.'
-
-echo -e "\n=== Tests Complete ==="
-```
-
-**Usage:**
-```bash
-chmod +x test_api.sh
-./test_api.sh
+curl -X GET "http://localhost:3003/api/templates?status=APPROVED&templateType=FLOW&limit=20&offset=0" \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN"
 ```
 
 ---
 
-## Notes
+## 6. Get Template by UUID
+### GET `/api/templates/:uuid`
 
-1. **JWT Token Generation:** Ensure you have a valid JWT token. The token should contain user information (id/userId).
-
-2. **Status Values:** Valid status values are:
-   - `"Pending"`
-   - `"approve"`
-   - `"rejected"`
-
-3. **Name Search:** The name filter performs a case-insensitive partial match using SQL LIKE with wildcards.
-
-4. **Empty Results:** If no templates match the filters, the API returns:
-   ```json
-   {
-     "success": true,
-     "count": 0,
-     "data": []
-   }
-   ```
-
-5. **Database Connection:** Ensure the database is running and accessible before testing.
+```bash
+curl -X GET http://localhost:3003/api/templates/TEMPLATE_UUID \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN"
+```
 
 ---
 
-## Troubleshooting
+## 7. Update Template
+### PATCH `/api/templates/:uuid`
+### Legacy Alias: POST `/api/templates/update/:uuid`
 
-### Issue: "No token provided"
-**Solution:** Add the Authorization header with Bearer token
+```bash
+curl -X PATCH http://localhost:3003/api/templates/TEMPLATE_UUID \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+  -d '{
+    "components": [
+      {"type":"BODY","text":"Updated body text"}
+    ]
+  }'
+```
 
-### Issue: "Invalid or expired token"
-**Solution:** Generate a new JWT token with valid credentials
+---
 
-### Issue: 500 Internal Server Error
-**Solution:** Check database connection and ensure the `custom_template` table exists
+## 8. Delete Template
+### DELETE `/api/templates/:uuid`
 
-### Issue: Empty data array
-**Solution:** Verify templates exist in the database or adjust filter criteria
+```bash
+curl -X DELETE http://localhost:3003/api/templates/TEMPLATE_UUID \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN"
+```
+
+---
+
+## 9. Sync Templates from Meta
+### POST `/api/templates/sync`
+
+```bash
+curl -X POST http://localhost:3003/api/templates/sync \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN"
+```
+
+---
+
+## Status Codes
+- `200` Success
+- `201` Created
+- `400` Invalid request
+- `401` Unauthorized
+- `404` Not found
+- `409` Conflict
+- `422` Validation error
+- `500` Internal error
+
+---
+
+## Backward Compatibility
+The service still supports previous aliases:
+- `POST /api/templates/create`
+- `POST /api/templates/list`
+- `POST /api/templates/update/:uuid`
+- `POST /api/templates/sync`
+
+Use new REST endpoints for all new integrations.

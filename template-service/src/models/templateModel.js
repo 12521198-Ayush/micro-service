@@ -1,465 +1,346 @@
-import mysql from 'mysql2/promise';
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID } from 'node:crypto';
+import { pool } from '../config/database.js';
+import { safeJsonParse } from '../utils/object.js';
 
-/**
- * Template Model - Database operations for custom templates
- */
+const toDatabaseJson = (value) => {
+  if (value === undefined) {
+    return null;
+  }
+
+  return JSON.stringify(value);
+};
+
+const toDatabaseJsonOrNull = (value) => {
+  if (value === undefined || value === null) {
+    return null;
+  }
+
+  return JSON.stringify(value);
+};
+
+const formatTemplate = (row) => {
+  if (!row) {
+    return null;
+  }
+
+  const rawMetaResponse = safeJsonParse(row.raw_meta_response, null);
+  const rejectionReason =
+    rawMetaResponse?.rejected_reason ||
+    rawMetaResponse?.rejection_reason ||
+    null;
+  const qualityScore = safeJsonParse(row.quality_score, row.quality_score);
+
+  return {
+    id: row.id,
+    uuid: row.uuid,
+    userId: row.user_id,
+    metaBusinessAccountId: row.meta_business_account_id,
+    metaTemplateId: row.meta_template_id,
+    name: row.name,
+    language: row.language,
+    category: row.category,
+    templateType: row.template_type,
+    status: row.status,
+    rejectionReason,
+    qualityScore,
+    components: safeJsonParse(row.components, []),
+    parameterFormat: row.parameter_format,
+    rawPayload: safeJsonParse(row.raw_payload, null),
+    rawMetaResponse,
+    lastSyncedAt: row.last_synced_at,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    deletedAt: row.deleted_at,
+  };
+};
+
+const buildWhereClause = (filters = {}) => {
+  const conditions = ['user_id = ?', 'deleted_at IS NULL'];
+  const values = [filters.userId];
+
+  if (filters.status) {
+    conditions.push('status = ?');
+    values.push(filters.status);
+  }
+
+  if (filters.category) {
+    conditions.push('category = ?');
+    values.push(filters.category);
+  }
+
+  if (filters.templateType) {
+    conditions.push('template_type = ?');
+    values.push(filters.templateType);
+  }
+
+  if (filters.language) {
+    conditions.push('language = ?');
+    values.push(filters.language);
+  }
+
+  if (filters.search) {
+    conditions.push('name LIKE ?');
+    values.push(`%${filters.search}%`);
+  }
+
+  return {
+    clause: conditions.join(' AND '),
+    values,
+  };
+};
 
 class TemplateModel {
-  /**
-   * Get database connection pool
-   */
-  static async getConnection() {
-    try {
-      const connection = await mysql.createConnection({
-        host: process.env.DB_HOST || 'localhost',
-        user: process.env.DB_USER || 'root',
-        password: process.env.DB_PASSWORD || '',
-        database: 'template_service',
-        port: process.env.DB_PORT || 3306,
-      });
-      return connection;
-    } catch (error) {
-      console.error('Database connection error:', error);
-      throw error;
-    }
-  }
+  static async createTemplate(input) {
+    const uuid = randomUUID();
 
-  /**
-   * Create a new custom template in database
-   * @param {Object} templateData - Template data to save
-   * @param {number} userId - User ID from JWT token
-   * @returns {Promise<Object>} Created template with ID
-   */
-  static async createTemplate(templateData, userId) {
-    let connection;
-    try {
-      connection = await this.getConnection();
-
-      const uuid = uuidv4();
-      const {
-        metaTemplateId,
-        name,
-        category,
-        language,
-        components,
-        parameterFormat,
-        status = 'Pending'
-      } = templateData;
-
-      // Prepare metadata JSON
-      const metadata = JSON.stringify({
-        components,
-        parameter_format: parameterFormat,
-        created_via: 'api'
-      });
-
-      const query = `
-        INSERT INTO custom_template (
-          user_id,
-          uuid,
-          meta_id,
-          name,
-          category,
-          language,
-          metadata,
-          status
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      `;
-
-      const values = [
-        userId,
+    const sql = `
+      INSERT INTO whatsapp_templates (
         uuid,
-        metaTemplateId,
+        user_id,
+        meta_business_account_id,
+        meta_template_id,
         name,
-        category,
         language,
-        metadata,
-        status
-      ];
-
-      const [result] = await connection.execute(query, values);
-
-      return {
-        id: result.insertId,
-        uuid,
-        metaTemplateId,
-        name,
         category,
-        language,
+        template_type,
         status,
-        createdAt: new Date().toISOString()
-      };
-    } catch (error) {
-      console.error('Error creating template:', error);
-      throw error;
-    } finally {
-      if (connection) await connection.end();
-    }
+        quality_score,
+        components,
+        parameter_format,
+        raw_payload,
+        raw_meta_response,
+        last_synced_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `;
+
+    const values = [
+      uuid,
+      input.userId,
+      input.metaBusinessAccountId,
+      input.metaTemplateId || null,
+      input.name,
+      input.language,
+      input.category,
+      input.templateType,
+      input.status,
+      toDatabaseJsonOrNull(input.qualityScore),
+      toDatabaseJson(input.components || []),
+      input.parameterFormat || null,
+      toDatabaseJson(input.rawPayload || null),
+      toDatabaseJson(input.rawMetaResponse || null),
+      input.lastSyncedAt || null,
+    ];
+
+    await pool.execute(sql, values);
+
+    return this.getTemplateByUuid(uuid, input.userId);
   }
 
-  /**
-   * Get template by UUID
-   * @param {string} uuid - Template UUID
-   * @param {number} userId - User ID for authorization
-   * @returns {Promise<Object>} Template data
-   */
   static async getTemplateByUuid(uuid, userId) {
-    let connection;
-    try {
-      connection = await this.getConnection();
+    const [rows] = await pool.execute(
+      `
+      SELECT *
+      FROM whatsapp_templates
+      WHERE uuid = ? AND user_id = ? AND deleted_at IS NULL
+      LIMIT 1
+      `,
+      [uuid, userId]
+    );
 
-      const query = `
-        SELECT * FROM custom_template
-        WHERE uuid = ? AND user_id = ?
-      `;
-
-      const [rows] = await connection.execute(query, [uuid, userId]);
-
-      if (rows.length === 0) {
-        return null;
-      }
-
-      return this.formatTemplate(rows[0]);
-    } catch (error) {
-      console.error('Error fetching template:', error);
-      throw error;
-    } finally {
-      if (connection) await connection.end();
+    if (rows.length === 0) {
+      return null;
     }
+
+    return formatTemplate(rows[0]);
   }
 
-  /**
-   * Get template by Meta ID
-   * @param {string} metaId - Meta template ID
-   * @returns {Promise<Object>} Template data
-   */
-  static async getTemplateByMetaId(metaId) {
-    let connection;
-    try {
-      connection = await this.getConnection();
+  static async getTemplateByMetaId(metaTemplateId, userId) {
+    const [rows] = await pool.execute(
+      `
+      SELECT *
+      FROM whatsapp_templates
+      WHERE meta_template_id = ? AND user_id = ? AND deleted_at IS NULL
+      LIMIT 1
+      `,
+      [metaTemplateId, userId]
+    );
 
-      const query = `
-        SELECT * FROM custom_template
-        WHERE meta_id = ?
-      `;
-
-      const [rows] = await connection.execute(query, [metaId]);
-
-      if (rows.length === 0) {
-        return null;
-      }
-
-      return this.formatTemplate(rows[0]);
-    } catch (error) {
-      console.error('Error fetching template by meta_id:', error);
-      throw error;
-    } finally {
-      if (connection) await connection.end();
+    if (rows.length === 0) {
+      return null;
     }
+
+    return formatTemplate(rows[0]);
   }
 
-  /**
-   * Get all templates for a user
-   * @param {number} userId - User ID
-   * @param {Object} options - Filter options (status, limit, offset)
-   * @returns {Promise<Array>} Array of templates
-   */
-  static async getUserTemplates(userId, options = {}) {
-    let connection;
-    try {
-      connection = await this.getConnection();
+  static async getTemplateByNameAndLanguage({ userId, metaBusinessAccountId, name, language }) {
+    const [rows] = await pool.execute(
+      `
+      SELECT *
+      FROM whatsapp_templates
+      WHERE user_id = ?
+        AND meta_business_account_id = ?
+        AND name = ?
+        AND language = ?
+        AND deleted_at IS NULL
+      LIMIT 1
+      `,
+      [userId, metaBusinessAccountId, name, language]
+    );
 
-      const { status, limit = 10, offset = 0 } = options;
-
-      let query = 'SELECT * FROM custom_template WHERE user_id = ?';
-      const params = [userId];
-
-      if (status) {
-        query += ' AND status = ?';
-        params.push(status);
-      }
-
-      query += ' ORDER BY created_at DESC LIMIT ? OFFSET ?';
-      params.push(limit, offset);
-
-      const [rows] = await connection.execute(query, params);
-
-      return rows.map(row => this.formatTemplate(row));
-    } catch (error) {
-      console.error('Error fetching user templates:', error);
-      throw error;
-    } finally {
-      if (connection) await connection.end();
+    if (rows.length === 0) {
+      return null;
     }
+
+    return formatTemplate(rows[0]);
   }
 
-  /**
-   * Update template status
-   * @param {string} uuid - Template UUID
-   * @param {string} newStatus - New status (Pending, approve, rejected)
-   * @param {number} userId - User ID for authorization
-   * @returns {Promise<Object>} Updated template
-   */
-  static async updateTemplateStatus(uuid, newStatus, userId) {
-    let connection;
-    try {
-      connection = await this.getConnection();
+  static async listTemplates(userId, filters = {}) {
+    const parsedLimit = Number.parseInt(filters.limit, 10);
+    const parsedOffset = Number.parseInt(filters.offset, 10);
 
-      const query = `
-        UPDATE custom_template
-        SET status = ?, updated_at = CURRENT_TIMESTAMP
-        WHERE uuid = ? AND user_id = ?
-      `;
+    const limit = Math.min(
+      Math.max(Number.isFinite(parsedLimit) ? parsedLimit : 20, 1),
+      100
+    );
+    const offset = Math.max(Number.isFinite(parsedOffset) ? parsedOffset : 0, 0);
 
-      const [result] = await connection.execute(query, [newStatus, uuid, userId]);
+    const { clause, values } = buildWhereClause({
+      userId,
+      status: filters.status,
+      category: filters.category,
+      templateType: filters.templateType,
+      language: filters.language,
+      search: filters.search,
+    });
 
-      if (result.affectedRows === 0) {
-        return null;
-      }
+    const listSql = `
+      SELECT *
+      FROM whatsapp_templates
+      WHERE ${clause}
+      ORDER BY created_at DESC
+      LIMIT ${limit} OFFSET ${offset}
+    `;
 
-      return this.getTemplateByUuid(uuid, userId);
-    } catch (error) {
-      console.error('Error updating template status:', error);
-      throw error;
-    } finally {
-      if (connection) await connection.end();
-    }
-  }
+    const countSql = `
+      SELECT COUNT(*) AS total
+      FROM whatsapp_templates
+      WHERE ${clause}
+    `;
 
-  /**
-   * Update template with Meta approval status
-   * @param {string} uuid - Template UUID
-   * @param {string} metaStatus - Meta API status (APPROVED, REJECTED, etc.)
-   * @returns {Promise<Object>} Updated template
-   */
-  static async updateMetaStatus(uuid, metaStatus) {
-    let connection;
-    try {
-      connection = await this.getConnection();
+    const [rows] = await pool.execute(listSql, values);
+    const [countRows] = await pool.execute(countSql, values);
 
-      // Map Meta status to our status
-      const statusMap = {
-        'APPROVED': 'approve',
-        'REJECTED': 'rejected',
-        'PENDING': 'Pending'
-      };
-
-      const newStatus = statusMap[metaStatus] || 'Pending';
-
-      const query = `
-        UPDATE custom_template
-        SET status = ?, updated_at = CURRENT_TIMESTAMP
-        WHERE uuid = ?
-      `;
-
-      await connection.execute(query, [newStatus, uuid]);
-
-      return this.getTemplateByMetaId(uuid);
-    } catch (error) {
-      console.error('Error updating meta status:', error);
-      throw error;
-    } finally {
-      if (connection) await connection.end();
-    }
-  }
-
-  /**
-   * Update template
-   * @param {string} uuid - Template UUID
-   * @param {Object} updateData - Data to update
-   * @param {number} userId - User ID for authorization
-   * @returns {Promise<Object>} Updated template
-   */
-  static async updateTemplate(uuid, updateData, userId) {
-    let connection;
-    try {
-      connection = await this.getConnection();
-
-      const { category, metadata, status } = updateData;
-
-      // Prepare metadata JSON
-      const metadataJson = JSON.stringify({
-        components: metadata,
-        updated_via: 'api'
-      });
-
-      const query = `
-        UPDATE custom_template
-        SET category = ?, metadata = ?, status = ?, updated_at = CURRENT_TIMESTAMP
-        WHERE uuid = ? AND user_id = ?
-      `;
-
-      const [result] = await connection.execute(query, [
-        category,
-        metadataJson,
-        status,
-        uuid,
-        userId
-      ]);
-
-      if (result.affectedRows === 0) {
-        return null;
-      }
-
-      return this.getTemplateByUuid(uuid, userId);
-    } catch (error) {
-      console.error('Error updating template:', error);
-      throw error;
-    } finally {
-      if (connection) await connection.end();
-    }
-  }
-
-  /**
-   * Delete template
-   * @param {string} uuid - Template UUID
-   * @param {number} userId - User ID for authorization
-   * @returns {Promise<boolean>} Success status
-   */
-  static async deleteTemplate(uuid, userId) {
-    let connection;
-    try {
-      connection = await this.getConnection();
-
-      const query = `
-        DELETE FROM custom_template
-        WHERE uuid = ? AND user_id = ?
-      `;
-
-      const [result] = await connection.execute(query, [uuid, userId]);
-
-      return result.affectedRows > 0;
-    } catch (error) {
-      console.error('Error deleting template:', error);
-      throw error;
-    } finally {
-      if (connection) await connection.end();
-    }
-  }
-
-  /**
-   * Get template count for user
-   * @param {number} userId - User ID
-   * @param {string} status - Filter by status (optional)
-   * @returns {Promise<number>} Count of templates
-   */
-  static async getTemplateCount(userId, status = null) {
-    let connection;
-    try {
-      connection = await this.getConnection();
-
-      let query = 'SELECT COUNT(*) as count FROM custom_template WHERE user_id = ?';
-      const params = [userId];
-
-      if (status) {
-        query += ' AND status = ?';
-        params.push(status);
-      }
-
-      const [rows] = await connection.execute(query, params);
-
-      return rows[0].count;
-    } catch (error) {
-      console.error('Error getting template count:', error);
-      throw error;
-    } finally {
-      if (connection) await connection.end();
-    }
-  }
-
-  /**
-   * Format template data from database
-   * @param {Object} dbTemplate - Raw database template object
-   * @returns {Object} Formatted template
-   */
-  static formatTemplate(dbTemplate) {
     return {
-      id: dbTemplate.id,
-      uuid: dbTemplate.uuid,
-      metaTemplateId: dbTemplate.meta_id,
-      name: dbTemplate.name,
-      category: dbTemplate.category,
-      language: dbTemplate.language,
-      status: dbTemplate.status,
-      metadata: typeof dbTemplate.metadata === 'string'
-        ? JSON.parse(dbTemplate.metadata)
-        : dbTemplate.metadata,
-      createdAt: dbTemplate.created_at,
-      updatedAt: dbTemplate.updated_at,
-      userId: dbTemplate.user_id
+      data: rows.map((row) => formatTemplate(row)),
+      pagination: {
+        total: countRows[0]?.total || 0,
+        limit,
+        offset,
+      },
     };
   }
 
-  /**
-   * Get templates by status
-   * @param {string} status - Template status
-   * @param {Object} options - Filter options (limit, offset)
-   * @returns {Promise<Array>} Array of templates
-   */
-  static async getTemplatesByStatus(status, options = {}) {
-    let connection;
-    try {
-      connection = await this.getConnection();
+  static async updateTemplate(uuid, userId, patch = {}) {
+    const updates = [];
+    const values = [];
 
-      const { limit = 10, offset = 0 } = options;
+    const assign = (column, value, mapper = (item) => item) => {
+      if (value === undefined) {
+        return;
+      }
 
-      const query = `
-        SELECT * FROM custom_template
-        WHERE status = ?
-        ORDER BY created_at DESC
-        LIMIT ? OFFSET ?
-      `;
+      updates.push(`${column} = ?`);
+      values.push(mapper(value));
+    };
 
-      const [rows] = await connection.execute(query, [status, limit, offset]);
+    assign('meta_template_id', patch.metaTemplateId);
+    assign('name', patch.name);
+    assign('language', patch.language);
+    assign('category', patch.category);
+    assign('template_type', patch.templateType);
+    assign('status', patch.status);
+    assign('quality_score', patch.qualityScore, toDatabaseJsonOrNull);
+    assign('components', patch.components, toDatabaseJson);
+    assign('parameter_format', patch.parameterFormat);
+    assign('raw_payload', patch.rawPayload, toDatabaseJson);
+    assign('raw_meta_response', patch.rawMetaResponse, toDatabaseJson);
+    assign('last_synced_at', patch.lastSyncedAt);
 
-      return rows.map(row => this.formatTemplate(row));
-    } catch (error) {
-      console.error('Error fetching templates by status:', error);
-      throw error;
-    } finally {
-      if (connection) await connection.end();
+    if (updates.length === 0) {
+      return this.getTemplateByUuid(uuid, userId);
     }
+
+    updates.push('updated_at = CURRENT_TIMESTAMP');
+
+    const sql = `
+      UPDATE whatsapp_templates
+      SET ${updates.join(', ')}
+      WHERE uuid = ? AND user_id = ? AND deleted_at IS NULL
+    `;
+
+    await pool.execute(sql, [...values, uuid, userId]);
+
+    return this.getTemplateByUuid(uuid, userId);
   }
 
-  /**
-   * Get all templates with optional filters
-   * @param {Object} filters - Optional filters (status, name)
-   * @returns {Promise<Array>} Array of all templates
-   */
-  static async getAllTemplates(filters = {}) {
-    let connection;
-    try {
-      connection = await this.getConnection();
+  static async upsertFromMeta(input) {
+    let existing = null;
 
-      const { status, name } = filters;
-      
-      let query = 'SELECT * FROM custom_template WHERE 1=1';
-      const params = [];
-
-      // Add status filter if provided
-      if (status) {
-        query += ' AND status = ?';
-        params.push(status);
-      }
-
-      // Add name filter if provided (partial match)
-      if (name) {
-        query += ' AND name LIKE ?';
-        params.push(`%${name}%`);
-      }
-
-      query += ' ORDER BY created_at DESC';
-
-      const [rows] = await connection.execute(query, params);
-
-      return rows.map(row => this.formatTemplate(row));
-    } catch (error) {
-      console.error('Error fetching all templates:', error);
-      throw error;
-    } finally {
-      if (connection) await connection.end();
+    if (input.metaTemplateId) {
+      existing = await this.getTemplateByMetaId(input.metaTemplateId, input.userId);
     }
+
+    if (!existing) {
+      existing = await this.getTemplateByNameAndLanguage({
+        userId: input.userId,
+        metaBusinessAccountId: input.metaBusinessAccountId,
+        name: input.name,
+        language: input.language,
+      });
+    }
+
+    if (existing) {
+      const updated = await this.updateTemplate(existing.uuid, input.userId, {
+        metaTemplateId: input.metaTemplateId || existing.metaTemplateId,
+        name: input.name,
+        language: input.language,
+        category: input.category,
+        templateType: input.templateType,
+        status: input.status,
+        qualityScore: input.qualityScore,
+        components: input.components,
+        parameterFormat: input.parameterFormat,
+        rawMetaResponse: input.rawMetaResponse,
+        lastSyncedAt: input.lastSyncedAt,
+      });
+
+      return {
+        action: 'updated',
+        template: updated,
+      };
+    }
+
+    const created = await this.createTemplate(input);
+
+    return {
+      action: 'created',
+      template: created,
+    };
+  }
+
+  static async softDeleteTemplate(uuid, userId) {
+    const [result] = await pool.execute(
+      `
+      UPDATE whatsapp_templates
+      SET deleted_at = CURRENT_TIMESTAMP,
+          status = 'DELETED',
+          updated_at = CURRENT_TIMESTAMP
+      WHERE uuid = ? AND user_id = ? AND deleted_at IS NULL
+      `,
+      [uuid, userId]
+    );
+
+    return result.affectedRows > 0;
   }
 }
 

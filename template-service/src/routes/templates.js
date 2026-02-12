@@ -1,24 +1,40 @@
 import express from 'express';
 import verifyToken from '../middleware/auth.js';
+import asyncHandler from '../middleware/asyncHandler.js';
+import { uploadTemplateMediaFile } from '../middleware/upload.js';
 import {
   createTemplate,
+  deleteTemplate,
+  getTemplateByUuid,
+  getTemplateCapabilities,
   listTemplates,
   syncTemplates,
+  uploadTemplateMedia,
   updateTemplate,
+  validateTemplatePayloadController,
 } from '../controllers/templateController.js';
 
 const router = express.Router();
 
-// POST - Create a new template (saves to Meta API + Database)
-router.post('/create', verifyToken, createTemplate);
+router.use(verifyToken);
 
-// POST - List all templates with optional filters (status, name)
-router.post('/list', verifyToken, listTemplates);
+router.get('/capabilities', asyncHandler(getTemplateCapabilities));
+router.post('/validate', asyncHandler(validateTemplatePayloadController));
+router.post('/sync', asyncHandler(syncTemplates));
+router.post(
+  '/media/upload',
+  uploadTemplateMediaFile,
+  asyncHandler(uploadTemplateMedia)
+);
 
-// POST - Sync templates from Meta API to Database
-router.post('/sync', verifyToken, syncTemplates);
+router.post('/create', asyncHandler(createTemplate));
+router.post('/list', asyncHandler(listTemplates));
+router.post('/update/:uuid', asyncHandler(updateTemplate));
 
-// POST - Update template in Meta API and Database
-router.post('/update/:uuid', verifyToken, updateTemplate);
+router.get('/', asyncHandler(listTemplates));
+router.post('/', asyncHandler(createTemplate));
+router.get('/:uuid', asyncHandler(getTemplateByUuid));
+router.patch('/:uuid', asyncHandler(updateTemplate));
+router.delete('/:uuid', asyncHandler(deleteTemplate));
 
 export default router;
