@@ -22,6 +22,7 @@ import {
   normalizeInternalStatus,
   normalizeMetaStatus,
 } from '../utils/templateStatus.js';
+import WebhookEventService from '../webhooks/services/webhookEventService.js';
 
 const DEFAULT_PAGE_LIMIT = 20;
 const MAX_PAGE_LIMIT = 100;
@@ -38,10 +39,8 @@ const serializeFilters = (filters) => {
   return JSON.stringify(ordered);
 };
 
-const getUserContext = (req) => {
+const getUserId = (req) => {
   const userId = req.user?.id || req.user?.userId;
-  const metaBusinessAccountId =
-    req.user?.metaBusinessAccountId || env.defaultMetaBusinessAccountId || null;
 
   if (!userId) {
     throw new AppError(401, 'Authenticated user id is required', {
@@ -49,41 +48,21 @@ const getUserContext = (req) => {
     });
   }
 
-  return {
-    userId,
-    metaBusinessAccountId,
-  };
+  return userId;
 };
 
-const requireMetaBusinessAccountId = (metaBusinessAccountId) => {
-  if (!metaBusinessAccountId) {
-    throw new AppError(400, 'metaBusinessAccountId is missing from token/context', {
-      code: 'META_BUSINESS_ACCOUNT_ID_MISSING',
+const getTenant = (req) => {
+  if (!req.tenant) {
+    throw new AppError(400, 'Tenant context is required', {
+      code: 'TENANT_CONTEXT_MISSING',
     });
   }
+
+  return req.tenant;
 };
 
-const resolveMetaAppId = (req) => {
-  return (
-    req.user?.metaAppId ||
-    req.user?.appId ||
-    req.user?.meta_app_id ||
-    req.user?.app_id ||
-    env.metaAppId ||
-    null
-  );
-};
-
-const requireMetaAppId = (metaAppId) => {
-  if (!metaAppId) {
-    throw new AppError(
-      400,
-      'metaAppId is required. Add META_APP_ID to env or include appId/metaAppId in token.',
-      {
-        code: 'META_APP_ID_MISSING',
-      }
-    );
-  }
+const buildTenantCacheKey = (tenant) => {
+  return `${tenant.organizationId}:${tenant.metaBusinessAccountId}:${tenant.metaAppId}`;
 };
 
 const normalizeListFilters = (raw = {}) => {
@@ -117,8 +96,9 @@ const normalizeListFilters = (raw = {}) => {
   };
 };
 
-const invalidateUserTemplateCache = async (userId) => {
-  await cache.deletePattern(cacheKeys.patterns.userTemplates(userId));
+const invalidateTenantTemplateCache = async (tenant) => {
+  const tenantKey = buildTenantCacheKey(tenant);
+  await cache.deletePattern(cacheKeys.patterns.tenantTemplates(tenantKey));
 };
 
 const buildTemplatePayloadFromMeta = (metaTemplate) => {
@@ -148,8 +128,8 @@ const buildTemplatePayloadFromMeta = (metaTemplate) => {
 };
 
 export const createTemplate = async (req, res) => {
-  const { userId, metaBusinessAccountId } = getUserContext(req);
-  requireMetaBusinessAccountId(metaBusinessAccountId);
+  const userId = getUserId(req);
+  const tenant = getTenant(req);
 
   const validation = validateAndNormalizeTemplatePayload(req.body, {
     forUpdate: false,
@@ -165,15 +145,15 @@ export const createTemplate = async (req, res) => {
   const payload = validation.normalizedPayload;
 
   const metaResponse = await metaTemplateApi.createTemplate(
-    metaBusinessAccountId,
+    tenant.metaBusinessAccountId,
     payload
   );
 
   const status = normalizeMetaStatus(metaResponse.status);
 
   const template = await TemplateModel.createTemplate({
+    tenant,
     userId,
-    metaBusinessAccountId,
     metaTemplateId: metaResponse.id,
     name: payload.name,
     language: payload.language,
@@ -188,7 +168,22 @@ export const createTemplate = async (req, res) => {
     lastSyncedAt: new Date(),
   });
 
-  await invalidateUserTemplateCache(userId);
+  await invalidateTenantTemplateCache(tenant);
+
+  await WebhookEventService.enqueueTenantEvent({
+    tenant,
+    eventType: 'template.created',
+    eventKey: `template.created:${template.uuid}`,
+    payload: {
+      templateId: template.uuid,
+      templateName: template.name,
+      templateType: template.templateType,
+      category: template.category,
+      status: template.status,
+      metaTemplateId: template.metaTemplateId,
+      createdBy: userId,
+    },
+  });
 
   res.status(201).json({
     success: true,
@@ -200,10 +195,9 @@ export const createTemplate = async (req, res) => {
 };
 
 export const uploadTemplateMedia = async (req, res) => {
-  const { userId } = getUserContext(req);
-  const metaAppId = resolveMetaAppId(req);
-
-  requireMetaAppId(metaAppId);
+  const userId = getUserId(req);
+  const tenant = getTenant(req);
+  const metaAppId = tenant.metaAppId;
 
   const uploadedFile = req.file;
   if (!uploadedFile) {
@@ -282,7 +276,7 @@ export const uploadTemplateMedia = async (req, res) => {
 
   logger.info('Template media upload completed', {
     userId,
-    metaAppId,
+    tenant,
     fileName,
     fileSize,
     mimeType,
@@ -305,12 +299,13 @@ export const uploadTemplateMedia = async (req, res) => {
 };
 
 export const listTemplates = async (req, res) => {
-  const { userId } = getUserContext(req);
+  const tenant = getTenant(req);
 
   const rawFilters = req.method === 'GET' ? req.query : req.body || {};
   const filters = normalizeListFilters(rawFilters);
 
-  const cacheKey = cacheKeys.templateList(userId, serializeFilters(filters));
+  const tenantKey = buildTenantCacheKey(tenant);
+  const cacheKey = cacheKeys.templateList(tenantKey, serializeFilters(filters));
   const cached = await cache.get(cacheKey);
 
   if (cached) {
@@ -321,7 +316,7 @@ export const listTemplates = async (req, res) => {
     return;
   }
 
-  const result = await TemplateModel.listTemplates(userId, filters);
+  const result = await TemplateModel.listTemplates(tenant, filters);
 
   const response = {
     success: true,
@@ -336,10 +331,11 @@ export const listTemplates = async (req, res) => {
 };
 
 export const getTemplateByUuid = async (req, res) => {
-  const { userId } = getUserContext(req);
+  const tenant = getTenant(req);
   const { uuid } = req.params;
 
-  const cacheKey = cacheKeys.templateByUuid(userId, uuid);
+  const tenantKey = buildTenantCacheKey(tenant);
+  const cacheKey = cacheKeys.templateByUuid(tenantKey, uuid);
   const cached = await cache.get(cacheKey);
 
   if (cached) {
@@ -351,7 +347,7 @@ export const getTemplateByUuid = async (req, res) => {
     return;
   }
 
-  const template = await TemplateModel.getTemplateByUuid(uuid, userId);
+  const template = await TemplateModel.getTemplateByUuid(uuid, tenant);
 
   if (!template) {
     throw new AppError(404, 'Template not found', {
@@ -368,10 +364,11 @@ export const getTemplateByUuid = async (req, res) => {
 };
 
 export const updateTemplate = async (req, res) => {
-  const { userId } = getUserContext(req);
+  const userId = getUserId(req);
+  const tenant = getTenant(req);
   const { uuid } = req.params;
 
-  const existingTemplate = await TemplateModel.getTemplateByUuid(uuid, userId);
+  const existingTemplate = await TemplateModel.getTemplateByUuid(uuid, tenant);
 
   if (!existingTemplate) {
     throw new AppError(404, 'Template not found', {
@@ -418,7 +415,7 @@ export const updateTemplate = async (req, res) => {
   const mergedCategory = normalizedPatch.category || existingTemplate.category;
   const mergedComponents = normalizedPatch.components || existingTemplate.components;
 
-  const updatedTemplate = await TemplateModel.updateTemplate(uuid, userId, {
+  const updatedTemplate = await TemplateModel.updateTemplate(uuid, tenant, {
     category: mergedCategory,
     templateType: deriveTemplateType({
       category: mergedCategory,
@@ -434,9 +431,24 @@ export const updateTemplate = async (req, res) => {
     }),
     rawMetaResponse: metaResponse,
     lastSyncedAt: new Date(),
+    updatedBy: userId,
   });
 
-  await invalidateUserTemplateCache(userId);
+  await invalidateTenantTemplateCache(tenant);
+
+  await WebhookEventService.enqueueTenantEvent({
+    tenant,
+    eventType: 'template.updated',
+    eventKey: `template.updated:${updatedTemplate.uuid}:${updatedTemplate.updatedAt}`,
+    payload: {
+      templateId: updatedTemplate.uuid,
+      templateName: updatedTemplate.name,
+      templateType: updatedTemplate.templateType,
+      category: updatedTemplate.category,
+      status: updatedTemplate.status,
+      updatedBy: userId,
+    },
+  });
 
   res.status(200).json({
     success: true,
@@ -448,11 +460,70 @@ export const updateTemplate = async (req, res) => {
   });
 };
 
-export const deleteTemplate = async (req, res) => {
-  const { userId, metaBusinessAccountId } = getUserContext(req);
+export const publishTemplate = async (req, res) => {
+  const userId = getUserId(req);
+  const tenant = getTenant(req);
   const { uuid } = req.params;
 
-  const template = await TemplateModel.getTemplateByUuid(uuid, userId);
+  const existingTemplate = await TemplateModel.getTemplateByUuid(uuid, tenant);
+
+  if (!existingTemplate) {
+    throw new AppError(404, 'Template not found', {
+      code: 'TEMPLATE_NOT_FOUND',
+    });
+  }
+
+  if (!existingTemplate.metaTemplateId) {
+    throw new AppError(409, 'Template is missing Meta template id', {
+      code: 'META_TEMPLATE_ID_MISSING',
+    });
+  }
+
+  const metaTemplate = await metaTemplateApi.getTemplateByMetaId(
+    existingTemplate.metaTemplateId
+  );
+
+  const normalizedStatus = normalizeMetaStatus(metaTemplate.status);
+
+  const updatedTemplate = await TemplateModel.updateTemplate(uuid, tenant, {
+    status: normalizedStatus,
+    qualityScore: metaTemplate.quality_score || existingTemplate.qualityScore,
+    rawMetaResponse: metaTemplate,
+    lastSyncedAt: new Date(),
+    updatedBy: userId,
+  });
+
+  await invalidateTenantTemplateCache(tenant);
+
+  await WebhookEventService.enqueueTenantEvent({
+    tenant,
+    eventType: 'template.synced',
+    eventKey: `template.synced:${updatedTemplate.uuid}:${updatedTemplate.updatedAt}`,
+    payload: {
+      templateId: updatedTemplate.uuid,
+      metaTemplateId: updatedTemplate.metaTemplateId,
+      status: updatedTemplate.status,
+      qualityScore: updatedTemplate.qualityScore,
+      syncedBy: userId,
+    },
+  });
+
+  res.status(200).json({
+    success: true,
+    message: 'Template status synchronized from Meta',
+    data: {
+      template: updatedTemplate,
+      meta: metaTemplate,
+    },
+  });
+};
+
+export const deleteTemplate = async (req, res) => {
+  const userId = getUserId(req);
+  const tenant = getTenant(req);
+  const { uuid } = req.params;
+
+  const template = await TemplateModel.getTemplateByUuid(uuid, tenant);
 
   if (!template) {
     throw new AppError(404, 'Template not found', {
@@ -474,10 +545,10 @@ export const deleteTemplate = async (req, res) => {
     }
   }
 
-  if (!metaResponse && metaBusinessAccountId) {
+  if (!metaResponse) {
     try {
       metaResponse = await metaTemplateApi.deleteTemplateByName(
-        metaBusinessAccountId,
+        tenant.metaBusinessAccountId,
         template.name
       );
     } catch (error) {
@@ -487,7 +558,7 @@ export const deleteTemplate = async (req, res) => {
     }
   }
 
-  const deleted = await TemplateModel.softDeleteTemplate(uuid, userId);
+  const deleted = await TemplateModel.softDeleteTemplate(uuid, tenant, userId);
 
   if (!deleted) {
     throw new AppError(404, 'Template already deleted', {
@@ -495,7 +566,19 @@ export const deleteTemplate = async (req, res) => {
     });
   }
 
-  await invalidateUserTemplateCache(userId);
+  await invalidateTenantTemplateCache(tenant);
+
+  await WebhookEventService.enqueueTenantEvent({
+    tenant,
+    eventType: 'template.deleted',
+    eventKey: `template.deleted:${uuid}`,
+    payload: {
+      templateId: uuid,
+      templateName: template.name,
+      templateType: template.templateType,
+      deletedBy: userId,
+    },
+  });
 
   res.status(200).json({
     success: true,
@@ -508,8 +591,8 @@ export const deleteTemplate = async (req, res) => {
 };
 
 export const syncTemplates = async (req, res) => {
-  const { userId, metaBusinessAccountId } = getUserContext(req);
-  requireMetaBusinessAccountId(metaBusinessAccountId);
+  const userId = getUserId(req);
+  const tenant = getTenant(req);
 
   const summary = {
     fetched: 0,
@@ -523,10 +606,13 @@ export const syncTemplates = async (req, res) => {
   let hasNextPage = true;
 
   while (hasNextPage) {
-    const response = await metaTemplateApi.listTemplates(metaBusinessAccountId, {
-      after,
-      limit: 50,
-    });
+    const response = await metaTemplateApi.listTemplates(
+      tenant.metaBusinessAccountId,
+      {
+        after,
+        limit: 50,
+      }
+    );
 
     const templates = Array.isArray(response.data) ? response.data : [];
     summary.fetched += templates.length;
@@ -536,8 +622,8 @@ export const syncTemplates = async (req, res) => {
         const mapped = buildTemplatePayloadFromMeta(metaTemplate);
 
         const result = await TemplateModel.upsertFromMeta({
+          tenant,
           userId,
-          metaBusinessAccountId,
           ...mapped,
         });
 
@@ -560,11 +646,20 @@ export const syncTemplates = async (req, res) => {
     hasNextPage = Boolean(response.paging?.next && after);
   }
 
-  await invalidateUserTemplateCache(userId);
+  await invalidateTenantTemplateCache(tenant);
+
+  await WebhookEventService.enqueueTenantEvent({
+    tenant,
+    eventType: 'template.synced',
+    eventKey: `template.synced.batch:${Date.now()}`,
+    payload: {
+      ...summary,
+      syncedBy: userId,
+    },
+  });
 
   logger.info('Template sync completed', {
-    userId,
-    metaBusinessAccountId,
+    tenant,
     ...summary,
   });
 

@@ -3,6 +3,7 @@ import env from './config/env.js';
 import logger from './config/logger.js';
 import { connectRedis, closeRedis } from './config/redis.js';
 import { closeDatabasePool } from './config/database.js';
+import WebhookEventService from './webhooks/services/webhookEventService.js';
 
 let server;
 
@@ -17,6 +18,7 @@ const shutdown = async (signal) => {
 
   await closeRedis();
   await closeDatabasePool();
+  WebhookEventService.stopDispatcher();
 
   process.exit(0);
 };
@@ -30,6 +32,8 @@ const bootstrap = async () => {
       nodeEnv: env.nodeEnv,
     });
   });
+
+  WebhookEventService.startDispatcher();
 
   process.on('SIGINT', () => shutdown('SIGINT'));
   process.on('SIGTERM', () => shutdown('SIGTERM'));

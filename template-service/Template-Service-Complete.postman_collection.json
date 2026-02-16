@@ -1,0 +1,1298 @@
+{
+  "info": {
+    "_postman_id": "b8a6e93d-5ed5-4b57-9a7f-2ef9a3b0c4f1",
+    "name": "Template Service - Complete SaaS APIs",
+    "description": "Single complete collection covering template APIs, flow APIs, webhook config APIs, and inbound webhook simulations with tenant-safe sample data.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{jwt_token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:3003"
+    },
+    {
+      "key": "jwt_token",
+      "value": ""
+    },
+    {
+      "key": "organization_id",
+      "value": "org_demo_001"
+    },
+    {
+      "key": "meta_business_account_id",
+      "value": "1846008296268872"
+    },
+    {
+      "key": "meta_app_id",
+      "value": "123456789012345"
+    },
+    {
+      "key": "meta_phone_number_id",
+      "value": "109876543210"
+    },
+    {
+      "key": "sample_to_phone",
+      "value": "+14155550123"
+    },
+    {
+      "key": "template_uuid_standard",
+      "value": "replace_standard_template_uuid"
+    },
+    {
+      "key": "template_uuid_authentication",
+      "value": "replace_auth_template_uuid"
+    },
+    {
+      "key": "template_uuid_carousel",
+      "value": "replace_carousel_template_uuid"
+    },
+    {
+      "key": "template_uuid_flow",
+      "value": "replace_flow_template_uuid"
+    },
+    {
+      "key": "flow_id",
+      "value": "replace_flow_uuid"
+    },
+    {
+      "key": "cloned_flow_id",
+      "value": "replace_cloned_flow_uuid"
+    },
+    {
+      "key": "webhook_event_id",
+      "value": "replace_webhook_event_uuid"
+    },
+    {
+      "key": "customer_webhook_url",
+      "value": "https://customer.example.com/hooks/whatsapp"
+    },
+    {
+      "key": "flow_webhook_secret",
+      "value": "change_this_secret"
+    },
+    {
+      "key": "meta_webhook_verify_token",
+      "value": "change_this_meta_verify_token"
+    },
+    {
+      "key": "media_file_path",
+      "value": "C:/path/to/banner.jpg"
+    },
+    {
+      "key": "media_file_type",
+      "value": "image/jpeg"
+    },
+    {
+      "key": "media_file_name",
+      "value": "banner.jpg"
+    },
+    {
+      "key": "media_header_handle",
+      "value": "4::aW1hZ2UvanBlZw==:REPLACE_WITH_REAL_HEADER_HANDLE"
+    }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "Health Check",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/health"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Webhook Config (Tenant)",
+      "item": [
+        {
+          "name": "Upsert Webhook Config",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-organization-id",
+                "value": "{{organization_id}}"
+              },
+              {
+                "key": "x-meta-business-account-id",
+                "value": "{{meta_business_account_id}}"
+              },
+              {
+                "key": "x-meta-app-id",
+                "value": "{{meta_app_id}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"targetUrl\": \"{{customer_webhook_url}}\",\n  \"authType\": \"BEARER\",\n  \"auth\": {\n    \"token\": \"replace_with_customer_token\"\n  },\n  \"signingSecret\": \"replace_with_hmac_secret\",\n  \"timeoutMs\": 8000,\n  \"maxRetries\": 6,\n  \"retryBackoffBaseSeconds\": 15,\n  \"eventTypes\": [\n    \"template.created\",\n    \"template.updated\",\n    \"template.deleted\",\n    \"template.synced\",    \"template.delivery.updated\",\n    \"template.response.received\",\n    \"flow.submission.received\"\n  ],\n  \"isActive\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{base_url}}/api/webhooks/config"
+          }
+        },
+        {
+          "name": "Get Webhook Config",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-organization-id",
+                "value": "{{organization_id}}"
+              },
+              {
+                "key": "x-meta-business-account-id",
+                "value": "{{meta_business_account_id}}"
+              },
+              {
+                "key": "x-meta-app-id",
+                "value": "{{meta_app_id}}"
+              }
+            ],
+            "url": "{{base_url}}/api/webhooks/config"
+          }
+        },
+        {
+          "name": "List Webhook Events",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-organization-id",
+                "value": "{{organization_id}}"
+              },
+              {
+                "key": "x-meta-business-account-id",
+                "value": "{{meta_business_account_id}}"
+              },
+              {
+                "key": "x-meta-app-id",
+                "value": "{{meta_app_id}}"
+              }
+            ],
+            "url": "{{base_url}}/api/webhooks/events?limit=20"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const rows = pm.response.json()?.data || [];",
+                  "  const first = Array.isArray(rows) ? rows[0] : null;",
+                  "  if (first?.id) pm.collectionVariables.set(\"webhook_event_id\", first.id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Retry Webhook Event",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "x-organization-id",
+                "value": "{{organization_id}}"
+              },
+              {
+                "key": "x-meta-business-account-id",
+                "value": "{{meta_business_account_id}}"
+              },
+              {
+                "key": "x-meta-app-id",
+                "value": "{{meta_app_id}}"
+              }
+            ],
+            "url": "{{base_url}}/api/webhooks/events/{{webhook_event_id}}/retry"
+          }
+        },
+        {
+          "name": "Disable Webhook Config",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "x-organization-id",
+                "value": "{{organization_id}}"
+              },
+              {
+                "key": "x-meta-business-account-id",
+                "value": "{{meta_business_account_id}}"
+              },
+              {
+                "key": "x-meta-app-id",
+                "value": "{{meta_app_id}}"
+              }
+            ],
+            "url": "{{base_url}}/api/webhooks/config"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Templates (Standard/Auth/Carousel/Flow Type)",
+      "item": [
+        {
+          "name": "Get Template Capabilities",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-organization-id",
+                "value": "{{organization_id}}"
+              },
+              {
+                "key": "x-meta-business-account-id",
+                "value": "{{meta_business_account_id}}"
+              },
+              {
+                "key": "x-meta-app-id",
+                "value": "{{meta_app_id}}"
+              }
+            ],
+            "url": "{{base_url}}/api/templates/capabilities"
+          }
+        },
+        {
+          "name": "Validate Template Payload",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-organization-id",
+                "value": "{{organization_id}}"
+              },
+              {
+                "key": "x-meta-business-account-id",
+                "value": "{{meta_business_account_id}}"
+              },
+              {
+                "key": "x-meta-app-id",
+                "value": "{{meta_app_id}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"promo_template_validate\",\n  \"category\": \"MARKETING\",\n  \"language\": \"en_US\",\n  \"components\": [\n    {\n      \"type\": \"BODY\",\n      \"text\": \"Hello {{1}}, here is your special offer.\",\n      \"example\": {\n        \"body_text\": [\n          [\n            \"Rahul\"\n          ]\n        ]\n      }\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{base_url}}/api/templates/validate"
+          }
+        },
+        {
+          "name": "Upload Media (header_handle)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "x-organization-id",
+                "value": "{{organization_id}}"
+              },
+              {
+                "key": "x-meta-business-account-id",
+                "value": "{{meta_business_account_id}}"
+              },
+              {
+                "key": "x-meta-app-id",
+                "value": "{{meta_app_id}}"
+              }
+            ],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": "{{media_file_path}}"
+                },
+                {
+                  "key": "fileName",
+                  "type": "text",
+                  "value": "{{media_file_name}}"
+                },
+                {
+                  "key": "fileType",
+                  "type": "text",
+                  "value": "{{media_file_type}}"
+                }
+              ]
+            },
+            "url": "{{base_url}}/api/templates/media/upload"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  const handle = pm.response.json()?.data?.header_handle || pm.response.json()?.data?.headerHandle;",
+                  "  if (handle) pm.collectionVariables.set(\"media_header_handle\", handle);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create Template - Standard",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-organization-id",
+                "value": "{{organization_id}}"
+              },
+              {
+                "key": "x-meta-business-account-id",
+                "value": "{{meta_business_account_id}}"
+              },
+              {
+                "key": "x-meta-app-id",
+                "value": "{{meta_app_id}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"welcome_offer_standard\",\n  \"category\": \"MARKETING\",\n  \"language\": \"en_US\",\n  \"components\": [\n    {\n      \"type\": \"HEADER\",\n      \"format\": \"TEXT\",\n      \"text\": \"Special Offer\"\n    },\n    {\n      \"type\": \"BODY\",\n      \"text\": \"Hello {{1}}, enjoy 20% off today.\",\n      \"example\": {\n        \"body_text\": [\n          [\n            \"Rahul\"\n          ]\n        ]\n      }\n    },\n    {\n      \"type\": \"FOOTER\",\n      \"text\": \"Offer valid for 24 hours\"\n    },\n    {\n      \"type\": \"BUTTONS\",\n      \"buttons\": [\n        {\n          \"type\": \"URL\",\n          \"text\": \"View\",\n          \"url\": \"https://example.com/promo\"\n        }\n      ]\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{base_url}}/api/templates"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  const uuid = pm.response.json()?.data?.template?.uuid;",
+                  "  if (uuid) pm.collectionVariables.set(\"template_uuid_standard\", uuid);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create Template - Authentication",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-organization-id",
+                "value": "{{organization_id}}"
+              },
+              {
+                "key": "x-meta-business-account-id",
+                "value": "{{meta_business_account_id}}"
+              },
+              {
+                "key": "x-meta-app-id",
+                "value": "{{meta_app_id}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"otp_login_template\",\n  \"category\": \"AUTHENTICATION\",\n  \"language\": \"en_US\",\n  \"components\": [\n    {\n      \"type\": \"BODY\",\n      \"add_security_recommendation\": true\n    },\n    {\n      \"type\": \"BUTTONS\",\n      \"buttons\": [\n        {\n          \"type\": \"OTP\",\n          \"otp_type\": \"COPY_CODE\",\n          \"text\": \"Copy code\"\n        }\n      ]\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{base_url}}/api/templates"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  const uuid = pm.response.json()?.data?.template?.uuid;",
+                  "  if (uuid) pm.collectionVariables.set(\"template_uuid_authentication\", uuid);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create Template - Carousel",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-organization-id",
+                "value": "{{organization_id}}"
+              },
+              {
+                "key": "x-meta-business-account-id",
+                "value": "{{meta_business_account_id}}"
+              },
+              {
+                "key": "x-meta-app-id",
+                "value": "{{meta_app_id}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"new_arrivals_carousel\",\n  \"category\": \"MARKETING\",\n  \"language\": \"en_US\",\n  \"components\": [\n    {\n      \"type\": \"BODY\",\n      \"text\": \"Check our latest arrivals\"\n    },\n    {\n      \"type\": \"CAROUSEL\",\n      \"cards\": [\n        {\n          \"components\": [\n            {\n              \"type\": \"HEADER\",\n              \"format\": \"IMAGE\",\n              \"example\": {\n                \"header_handle\": [\n                  \"{{media_header_handle}}\"\n                ]\n              }\n            },\n            {\n              \"type\": \"BODY\",\n              \"text\": \"Product 1 details\"\n            },\n            {\n              \"type\": \"BUTTONS\",\n              \"buttons\": [\n                {\n                  \"type\": \"URL\",\n                  \"text\": \"View\",\n                  \"url\": \"https://example.com/p1\"\n                }\n              ]\n            }\n          ]\n        }\n      ]\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{base_url}}/api/templates"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  const uuid = pm.response.json()?.data?.template?.uuid;",
+                  "  if (uuid) pm.collectionVariables.set(\"template_uuid_carousel\", uuid);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create Template - Flow Type",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-organization-id",
+                "value": "{{organization_id}}"
+              },
+              {
+                "key": "x-meta-business-account-id",
+                "value": "{{meta_business_account_id}}"
+              },
+              {
+                "key": "x-meta-app-id",
+                "value": "{{meta_app_id}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"lead_capture_flow\",\n  \"category\": \"UTILITY\",\n  \"language\": \"en_US\",\n  \"components\": [\n    {\n      \"type\": \"BODY\",\n      \"text\": \"Please continue in flow.\"\n    },\n    {\n      \"type\": \"BUTTONS\",\n      \"buttons\": [\n        {\n          \"type\": \"FLOW\",\n          \"text\": \"Open Flow\",\n          \"flow_id\": \"123456789\"\n        }\n      ]\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{base_url}}/api/templates"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  const uuid = pm.response.json()?.data?.template?.uuid;",
+                  "  if (uuid) pm.collectionVariables.set(\"template_uuid_flow\", uuid);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List Templates",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-organization-id",
+                "value": "{{organization_id}}"
+              },
+              {
+                "key": "x-meta-business-account-id",
+                "value": "{{meta_business_account_id}}"
+              },
+              {
+                "key": "x-meta-app-id",
+                "value": "{{meta_app_id}}"
+              }
+            ],
+            "url": "{{base_url}}/api/templates?limit=20&offset=0"
+          }
+        },
+        {
+          "name": "Get Template - Standard",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-organization-id",
+                "value": "{{organization_id}}"
+              },
+              {
+                "key": "x-meta-business-account-id",
+                "value": "{{meta_business_account_id}}"
+              },
+              {
+                "key": "x-meta-app-id",
+                "value": "{{meta_app_id}}"
+              }
+            ],
+            "url": "{{base_url}}/api/templates/{{template_uuid_standard}}"
+          }
+        },
+        {
+          "name": "Update Template (PUT) - Standard",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-organization-id",
+                "value": "{{organization_id}}"
+              },
+              {
+                "key": "x-meta-business-account-id",
+                "value": "{{meta_business_account_id}}"
+              },
+              {
+                "key": "x-meta-app-id",
+                "value": "{{meta_app_id}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"category\": \"MARKETING\",\n  \"components\": [\n    {\n      \"type\": \"BODY\",\n      \"text\": \"Updated template body text {{1}}\"\n    },\n    {\n      \"type\": \"BUTTONS\",\n      \"buttons\": [\n        {\n          \"type\": \"QUICK_REPLY\",\n          \"text\": \"Interested\"\n        }\n      ]\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{base_url}}/api/templates/{{template_uuid_standard}}"
+          }
+        },
+        {
+          "name": "Patch Template (PATCH) - Standard",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-organization-id",
+                "value": "{{organization_id}}"
+              },
+              {
+                "key": "x-meta-business-account-id",
+                "value": "{{meta_business_account_id}}"
+              },
+              {
+                "key": "x-meta-app-id",
+                "value": "{{meta_app_id}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"components\": [\n    {\n      \"type\": \"BODY\",\n      \"text\": \"Patched body text {{1}}\",\n      \"example\": {\n        \"body_text\": [\n          [\n            \"Alex\"\n          ]\n        ]\n      }\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{base_url}}/api/templates/{{template_uuid_standard}}"
+          }
+        },
+        {
+          "name": "Publish Template - Standard (Sync Meta Status)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "x-organization-id",
+                "value": "{{organization_id}}"
+              },
+              {
+                "key": "x-meta-business-account-id",
+                "value": "{{meta_business_account_id}}"
+              },
+              {
+                "key": "x-meta-app-id",
+                "value": "{{meta_app_id}}"
+              }
+            ],
+            "url": "{{base_url}}/api/templates/{{template_uuid_standard}}/publish"
+          }
+        },
+        {
+          "name": "Sync Templates From Meta",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "x-organization-id",
+                "value": "{{organization_id}}"
+              },
+              {
+                "key": "x-meta-business-account-id",
+                "value": "{{meta_business_account_id}}"
+              },
+              {
+                "key": "x-meta-app-id",
+                "value": "{{meta_app_id}}"
+              }
+            ],
+            "url": "{{base_url}}/api/templates/sync"
+          }
+        },
+        {
+          "name": "Delete Template - Flow Type",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "x-organization-id",
+                "value": "{{organization_id}}"
+              },
+              {
+                "key": "x-meta-business-account-id",
+                "value": "{{meta_business_account_id}}"
+              },
+              {
+                "key": "x-meta-app-id",
+                "value": "{{meta_app_id}}"
+              }
+            ],
+            "url": "{{base_url}}/api/templates/{{template_uuid_flow}}"
+          }
+        },
+        {
+          "name": "Get Template - Authentication",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-organization-id",
+                "value": "{{organization_id}}"
+              },
+              {
+                "key": "x-meta-business-account-id",
+                "value": "{{meta_business_account_id}}"
+              },
+              {
+                "key": "x-meta-app-id",
+                "value": "{{meta_app_id}}"
+              }
+            ],
+            "url": "{{base_url}}/api/templates/{{template_uuid_authentication}}"
+          }
+        },
+        {
+          "name": "Get Template - Carousel",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-organization-id",
+                "value": "{{organization_id}}"
+              },
+              {
+                "key": "x-meta-business-account-id",
+                "value": "{{meta_business_account_id}}"
+              },
+              {
+                "key": "x-meta-app-id",
+                "value": "{{meta_app_id}}"
+              }
+            ],
+            "url": "{{base_url}}/api/templates/{{template_uuid_carousel}}"
+          }
+        },
+        {
+          "name": "Get Template - Flow Type",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-organization-id",
+                "value": "{{organization_id}}"
+              },
+              {
+                "key": "x-meta-business-account-id",
+                "value": "{{meta_business_account_id}}"
+              },
+              {
+                "key": "x-meta-app-id",
+                "value": "{{meta_app_id}}"
+              }
+            ],
+            "url": "{{base_url}}/api/templates/{{template_uuid_flow}}"
+          }
+        },
+        {
+          "name": "Publish Template - Authentication (Sync Meta Status)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "x-organization-id",
+                "value": "{{organization_id}}"
+              },
+              {
+                "key": "x-meta-business-account-id",
+                "value": "{{meta_business_account_id}}"
+              },
+              {
+                "key": "x-meta-app-id",
+                "value": "{{meta_app_id}}"
+              }
+            ],
+            "url": "{{base_url}}/api/templates/{{template_uuid_authentication}}/publish"
+          }
+        },
+        {
+          "name": "Publish Template - Carousel (Sync Meta Status)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "x-organization-id",
+                "value": "{{organization_id}}"
+              },
+              {
+                "key": "x-meta-business-account-id",
+                "value": "{{meta_business_account_id}}"
+              },
+              {
+                "key": "x-meta-app-id",
+                "value": "{{meta_app_id}}"
+              }
+            ],
+            "url": "{{base_url}}/api/templates/{{template_uuid_carousel}}/publish"
+          }
+        },
+        {
+          "name": "Publish Template - Flow Type (Sync Meta Status)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "x-organization-id",
+                "value": "{{organization_id}}"
+              },
+              {
+                "key": "x-meta-business-account-id",
+                "value": "{{meta_business_account_id}}"
+              },
+              {
+                "key": "x-meta-app-id",
+                "value": "{{meta_app_id}}"
+              }
+            ],
+            "url": "{{base_url}}/api/templates/{{template_uuid_flow}}/publish"
+          }
+        },
+        {
+          "name": "Delete Template - Standard",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "x-organization-id",
+                "value": "{{organization_id}}"
+              },
+              {
+                "key": "x-meta-business-account-id",
+                "value": "{{meta_business_account_id}}"
+              },
+              {
+                "key": "x-meta-app-id",
+                "value": "{{meta_app_id}}"
+              }
+            ],
+            "url": "{{base_url}}/api/templates/{{template_uuid_standard}}"
+          }
+        },
+        {
+          "name": "Delete Template - Authentication",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "x-organization-id",
+                "value": "{{organization_id}}"
+              },
+              {
+                "key": "x-meta-business-account-id",
+                "value": "{{meta_business_account_id}}"
+              },
+              {
+                "key": "x-meta-app-id",
+                "value": "{{meta_app_id}}"
+              }
+            ],
+            "url": "{{base_url}}/api/templates/{{template_uuid_authentication}}"
+          }
+        },
+        {
+          "name": "Delete Template - Carousel",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "x-organization-id",
+                "value": "{{organization_id}}"
+              },
+              {
+                "key": "x-meta-business-account-id",
+                "value": "{{meta_business_account_id}}"
+              },
+              {
+                "key": "x-meta-app-id",
+                "value": "{{meta_app_id}}"
+              }
+            ],
+            "url": "{{base_url}}/api/templates/{{template_uuid_carousel}}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Flow Templates Engine",
+      "item": [
+        {
+          "name": "Create Flow",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-organization-id",
+                "value": "{{organization_id}}"
+              },
+              {
+                "key": "x-meta-business-account-id",
+                "value": "{{meta_business_account_id}}"
+              },
+              {
+                "key": "x-meta-app-id",
+                "value": "{{meta_app_id}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Lead Qualification Form\",\n  \"template_key\": \"lead_qualification_form\",\n  \"description\": \"Collect lead profile and intent\",\n  \"category\": \"LEAD_QUALIFICATION\",\n  \"webhook_mapping\": {\n    \"organizationId\": \"{{tenant.organization_id}}\",\n    \"flowId\": \"{{flow.id}}\",\n    \"phone\": \"{{user_phone}}\",\n    \"lead\": {\n      \"name\": \"{{answers.full_name}}\",\n      \"email\": \"{{answers.email}}\"\n    }\n  },\n  \"screens\": [\n    {\n      \"key\": \"basic_info\",\n      \"title\": \"Basic Info\",\n      \"is_entry_point\": true,\n      \"components\": [\n        {\n          \"key\": \"full_name\",\n          \"type\": \"input\",\n          \"label\": \"Full Name\",\n          \"variable_key\": \"full_name\",\n          \"required\": true\n        },\n        {\n          \"key\": \"email\",\n          \"type\": \"email\",\n          \"label\": \"Email\",\n          \"variable_key\": \"email\",\n          \"required\": true\n        }\n      ],\n      \"actions\": [\n        {\n          \"key\": \"go_next\",\n          \"type\": \"next_screen\",\n          \"target_screen_key\": \"confirm\"\n        }\n      ]\n    },\n    {\n      \"key\": \"confirm\",\n      \"title\": \"Confirm\",\n      \"components\": [\n        {\n          \"key\": \"summary\",\n          \"type\": \"summary\",\n          \"label\": \"Review Details\"\n        }\n      ],\n      \"actions\": [\n        {\n          \"key\": \"submit\",\n          \"type\": \"submit\"\n        }\n      ]\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{base_url}}/flows"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  const flowId = pm.response.json()?.data?.id;",
+                  "  if (flowId) pm.collectionVariables.set(\"flow_id\", flowId);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List Flows",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-organization-id",
+                "value": "{{organization_id}}"
+              },
+              {
+                "key": "x-meta-business-account-id",
+                "value": "{{meta_business_account_id}}"
+              },
+              {
+                "key": "x-meta-app-id",
+                "value": "{{meta_app_id}}"
+              }
+            ],
+            "url": "{{base_url}}/flows?status=DRAFT&limit=20&offset=0"
+          }
+        },
+        {
+          "name": "Get Flow By ID",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-organization-id",
+                "value": "{{organization_id}}"
+              },
+              {
+                "key": "x-meta-business-account-id",
+                "value": "{{meta_business_account_id}}"
+              },
+              {
+                "key": "x-meta-app-id",
+                "value": "{{meta_app_id}}"
+              }
+            ],
+            "url": "{{base_url}}/flows/{{flow_id}}"
+          }
+        },
+        {
+          "name": "Get Flow By ID (Specific Version)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-organization-id",
+                "value": "{{organization_id}}"
+              },
+              {
+                "key": "x-meta-business-account-id",
+                "value": "{{meta_business_account_id}}"
+              },
+              {
+                "key": "x-meta-app-id",
+                "value": "{{meta_app_id}}"
+              }
+            ],
+            "url": "{{base_url}}/flows/{{flow_id}}?version=1"
+          }
+        },
+        {
+          "name": "Update Flow",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-organization-id",
+                "value": "{{organization_id}}"
+              },
+              {
+                "key": "x-meta-business-account-id",
+                "value": "{{meta_business_account_id}}"
+              },
+              {
+                "key": "x-meta-app-id",
+                "value": "{{meta_app_id}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Lead Qualification Form v2\",\n  \"template_key\": \"lead_qualification_form\",\n  \"description\": \"Updated draft with notes field\",\n  \"category\": \"LEAD_QUALIFICATION\",\n  \"screens\": [\n    {\n      \"key\": \"basic_info\",\n      \"title\": \"Basic Info\",\n      \"is_entry_point\": true,\n      \"components\": [\n        {\n          \"key\": \"full_name\",\n          \"type\": \"input\",\n          \"label\": \"Full Name\",\n          \"variable_key\": \"full_name\",\n          \"required\": true\n        },\n        {\n          \"key\": \"email\",\n          \"type\": \"email\",\n          \"label\": \"Email\",\n          \"variable_key\": \"email\",\n          \"required\": true\n        }\n      ],\n      \"actions\": [\n        {\n          \"key\": \"go_next\",\n          \"type\": \"next_screen\",\n          \"target_screen_key\": \"confirm\"\n        }\n      ]\n    },\n    {\n      \"key\": \"confirm\",\n      \"title\": \"Confirm\",\n      \"components\": [\n        {\n          \"key\": \"notes\",\n          \"type\": \"textarea\",\n          \"label\": \"Notes\",\n          \"variable_key\": \"notes\"\n        }\n      ],\n      \"actions\": [\n        {\n          \"key\": \"submit\",\n          \"type\": \"submit\"\n        }\n      ]\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{base_url}}/flows/{{flow_id}}"
+          }
+        },
+        {
+          "name": "Publish Flow",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-organization-id",
+                "value": "{{organization_id}}"
+              },
+              {
+                "key": "x-meta-business-account-id",
+                "value": "{{meta_business_account_id}}"
+              },
+              {
+                "key": "x-meta-app-id",
+                "value": "{{meta_app_id}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"notes\": \"Approved for production\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{base_url}}/flows/{{flow_id}}/publish"
+          }
+        },
+        {
+          "name": "Clone Flow",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-organization-id",
+                "value": "{{organization_id}}"
+              },
+              {
+                "key": "x-meta-business-account-id",
+                "value": "{{meta_business_account_id}}"
+              },
+              {
+                "key": "x-meta-app-id",
+                "value": "{{meta_app_id}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Lead Qualification Form Clone\",\n  \"template_key\": \"lead_qualification_form_clone\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{base_url}}/flows/{{flow_id}}/clone"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  const id = pm.response.json()?.data?.id;",
+                  "  if (id) pm.collectionVariables.set(\"cloned_flow_id\", id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get Cloned Flow",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-organization-id",
+                "value": "{{organization_id}}"
+              },
+              {
+                "key": "x-meta-business-account-id",
+                "value": "{{meta_business_account_id}}"
+              },
+              {
+                "key": "x-meta-app-id",
+                "value": "{{meta_app_id}}"
+              }
+            ],
+            "url": "{{base_url}}/flows/{{cloned_flow_id}}"
+          }
+        },
+        {
+          "name": "Delete Cloned Flow",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "x-organization-id",
+                "value": "{{organization_id}}"
+              },
+              {
+                "key": "x-meta-business-account-id",
+                "value": "{{meta_business_account_id}}"
+              },
+              {
+                "key": "x-meta-app-id",
+                "value": "{{meta_app_id}}"
+              }
+            ],
+            "url": "{{base_url}}/flows/{{cloned_flow_id}}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Inbound Webhooks (Simulation)",
+      "item": [
+        {
+          "name": "Meta Webhook Verify",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/webhooks/meta?hub.mode=subscribe&hub.verify_token={{meta_webhook_verify_token}}&hub.challenge=1234"
+          }
+        },
+        {
+          "name": "Meta Webhook Callback - Delivery Status",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"object\": \"whatsapp_business_account\",\n  \"entry\": [\n    {\n      \"id\": \"{{meta_business_account_id}}\",\n      \"changes\": [\n        {\n          \"field\": \"messages\",\n          \"value\": {\n            \"metadata\": {\n              \"display_phone_number\": \"15550001111\",\n              \"phone_number_id\": \"{{meta_phone_number_id}}\"\n            },\n            \"statuses\": [\n              {\n                \"id\": \"wamid.HBgM0000000001\",\n                \"status\": \"delivered\",\n                \"timestamp\": \"1739346000\",\n                \"recipient_id\": \"14155550123\"\n              }\n            ]\n          }\n        }\n      ]\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{base_url}}/webhooks/meta"
+          }
+        },
+        {
+          "name": "Meta Webhook Callback - Interactive Reply",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"object\": \"whatsapp_business_account\",\n  \"entry\": [\n    {\n      \"id\": \"{{meta_business_account_id}}\",\n      \"changes\": [\n        {\n          \"field\": \"messages\",\n          \"value\": {\n            \"metadata\": {\n              \"display_phone_number\": \"15550001111\",\n              \"phone_number_id\": \"{{meta_phone_number_id}}\"\n            },\n            \"messages\": [\n              {\n                \"from\": \"14155550123\",\n                \"id\": \"wamid.inbound.1\",\n                \"timestamp\": \"1739346001\",\n                \"type\": \"interactive\",\n                \"context\": {\n                  \"id\": \"wamid.HBgM0000000001\"\n                },\n                \"interactive\": {\n                  \"type\": \"button_reply\",\n                  \"button_reply\": {\n                    \"id\": \"confirm\",\n                    \"title\": \"Confirm\"\n                  }\n                }\n              }\n            ]\n          }\n        }\n      ]\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{base_url}}/webhooks/meta"
+          }
+        },
+        {
+          "name": "Flow Submission Webhook",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-flow-webhook-secret",
+                "value": "{{flow_webhook_secret}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"flow_id\": \"{{flow_id}}\",\n  \"version\": 1,\n  \"organization_id\": \"{{organization_id}}\",\n  \"meta_business_account_id\": \"{{meta_business_account_id}}\",\n  \"meta_app_id\": \"{{meta_app_id}}\",\n  \"user_phone\": \"{{sample_to_phone}}\",\n  \"answers\": {\n    \"full_name\": \"Alex Carter\",\n    \"email\": \"alex@example.com\",\n    \"notes\": \"Interested in premium package\"\n  },\n  \"status\": \"RECEIVED\",\n  \"source\": \"WHATSAPP\",\n  \"external_reference\": \"wa_msg_12345\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{base_url}}/webhooks/flows"
+          }
+        }
+      ]
+    }
+  ]
+}

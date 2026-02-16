@@ -43,8 +43,16 @@ const env = {
   metaApiVersion: process.env.META_API_VERSION || 'v20.0',
   metaAccessToken: process.env.META_ACCESS_TOKEN || '',
   metaApiTimeoutMs: parseInteger(process.env.META_API_TIMEOUT_MS, 20000),
-  metaAppId: process.env.META_APP_ID || '',
-  defaultMetaBusinessAccountId: process.env.META_BUSINESS_ACCOUNT_ID || '',
+  flowWebhookSecret: process.env.FLOW_WEBHOOK_SECRET || '',
+  metaWebhookVerifyToken: process.env.META_WEBHOOK_VERIFY_TOKEN || '',
+  webhookDispatchIntervalMs: parseInteger(
+    process.env.WEBHOOK_DISPATCH_INTERVAL_MS,
+    5000
+  ),
+  webhookDispatchBatchSize: parseInteger(
+    process.env.WEBHOOK_DISPATCH_BATCH_SIZE,
+    50
+  ),
   templateMediaMaxBytes: parseInteger(
     process.env.TEMPLATE_MEDIA_MAX_BYTES,
     25 * 1024 * 1024

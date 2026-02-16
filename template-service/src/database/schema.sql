@@ -1,27 +1,9 @@
-CREATE TABLE IF NOT EXISTS whatsapp_templates (
-    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    uuid CHAR(36) NOT NULL UNIQUE,
-    user_id BIGINT UNSIGNED NOT NULL,
-    meta_business_account_id VARCHAR(64) NOT NULL,
-    meta_template_id VARCHAR(64) NULL,
-    name VARCHAR(512) NOT NULL,
-    language VARCHAR(32) NOT NULL,
-    category ENUM('MARKETING', 'UTILITY', 'AUTHENTICATION') NOT NULL,
-    template_type ENUM('STANDARD', 'CAROUSEL', 'FLOW', 'AUTHENTICATION', 'UNKNOWN') NOT NULL DEFAULT 'STANDARD',
-    status VARCHAR(32) NOT NULL DEFAULT 'PENDING',
-    quality_score LONGTEXT NULL,
-    components JSON NOT NULL,
-    parameter_format VARCHAR(64) NULL,
-    raw_payload JSON NULL,
-    raw_meta_response JSON NULL,
-    last_synced_at DATETIME NULL,
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    deleted_at DATETIME NULL,
+-- Canonical schema is managed with versioned SQL files under src/database/migrations.
+-- This file is kept as a reference entrypoint.
 
-    UNIQUE KEY uk_waba_name_language (user_id, meta_business_account_id, name, language),
-    UNIQUE KEY uk_user_meta_template_id (user_id, meta_template_id),
-    INDEX idx_user_status (user_id, status),
-    INDEX idx_user_type (user_id, template_type),
-    INDEX idx_created_at (created_at)
-);
+SOURCE ./migrations/001_create_whatsapp_templates.sql;
+SOURCE ./migrations/002_create_flow_engine.sql;
+SOURCE ./migrations/003_whatsapp_template_index_compat.sql;
+SOURCE ./migrations/004_template_tenant_hardening.sql;
+SOURCE ./migrations/005_template_send_and_webhook_engine.sql;
+SOURCE ./migrations/006_remove_template_send_gateway.sql;

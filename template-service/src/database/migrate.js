@@ -6,20 +6,43 @@ import env from '../config/env.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const migrationsDir = path.join(__dirname, 'migrations');
 
-const doesIndexExist = async (connection, indexName) => {
-  const [rows] = await connection.query(
-    `
-      SELECT COUNT(*) AS count
-      FROM information_schema.statistics
-      WHERE table_schema = ?
-        AND table_name = 'whatsapp_templates'
-        AND index_name = ?
-    `,
-    [env.db.name, indexName]
+const ensureMigrationsTable = async (connection) => {
+  await connection.query(`
+    CREATE TABLE IF NOT EXISTS schema_migrations (
+      id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+      filename VARCHAR(255) NOT NULL UNIQUE,
+      applied_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+};
+
+const getAppliedMigrationSet = async (connection) => {
+  const [rows] = await connection.query('SELECT filename FROM schema_migrations');
+  return new Set(rows.map((row) => row.filename));
+};
+
+const getMigrationFiles = () => {
+  if (!fs.existsSync(migrationsDir)) {
+    return [];
+  }
+
+  return fs
+    .readdirSync(migrationsDir)
+    .filter((file) => file.toLowerCase().endsWith('.sql'))
+    .sort((a, b) => a.localeCompare(b));
+};
+
+const applyMigration = async (connection, filename) => {
+  const filePath = path.join(migrationsDir, filename);
+  const sql = fs.readFileSync(filePath, 'utf8');
+
+  await connection.query(sql);
+  await connection.execute(
+    'INSERT INTO schema_migrations (filename) VALUES (?)',
+    [filename]
   );
-
-  return Number(rows[0]?.count || 0) > 0;
 };
 
 const runMigration = async () => {
@@ -39,24 +62,19 @@ const runMigration = async () => {
     await connection.query(`CREATE DATABASE IF NOT EXISTS \`${env.db.name}\``);
     await connection.query(`USE \`${env.db.name}\``);
 
-    const schemaPath = path.join(__dirname, 'schema.sql');
-    const schemaSql = fs.readFileSync(schemaPath, 'utf8');
+    await ensureMigrationsTable(connection);
 
-    await connection.query(schemaSql);
-    await connection.query(
-      'ALTER TABLE whatsapp_templates MODIFY COLUMN quality_score LONGTEXT NULL'
-    );
+    const appliedMigrations = await getAppliedMigrationSet(connection);
+    const migrationFiles = getMigrationFiles();
 
-    if (await doesIndexExist(connection, 'uk_meta_template_id')) {
-      await connection.query(
-        'ALTER TABLE whatsapp_templates DROP INDEX uk_meta_template_id'
-      );
-    }
+    for (const migrationFile of migrationFiles) {
+      if (appliedMigrations.has(migrationFile)) {
+        continue;
+      }
 
-    if (!(await doesIndexExist(connection, 'uk_user_meta_template_id'))) {
-      await connection.query(
-        'ALTER TABLE whatsapp_templates ADD UNIQUE KEY uk_user_meta_template_id (user_id, meta_template_id)'
-      );
+      console.log(`Applying migration: ${migrationFile}`);
+      await applyMigration(connection, migrationFile);
+      console.log(`Applied migration: ${migrationFile}`);
     }
 
     console.log(`Migration completed for database '${env.db.name}'`);

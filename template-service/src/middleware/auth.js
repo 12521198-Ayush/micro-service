@@ -15,22 +15,35 @@ const buildUserContext = (decodedToken) => {
     decodedToken.metaBusinessAccountId ||
     decodedToken.meta_business_account_id ||
     decodedToken.whatsappBusinessAccountId ||
-    env.defaultMetaBusinessAccountId ||
     null;
   const metaAppId =
     decodedToken.metaAppId ||
     decodedToken.meta_app_id ||
     decodedToken.appId ||
     decodedToken.app_id ||
-    env.metaAppId ||
+    null;
+  const metaPhoneNumberId =
+    decodedToken.metaPhoneNumberId ||
+    decodedToken.meta_phone_number_id ||
+    decodedToken.phoneNumberId ||
+    decodedToken.phone_number_id ||
+    null;
+  const organizationId =
+    decodedToken.organizationId ||
+    decodedToken.organization_id ||
+    decodedToken.orgId ||
+    decodedToken.tenantId ||
+    decodedToken.tenant_id ||
     null;
 
   return {
     ...decodedToken,
     userId: Number.isFinite(userId) ? userId : null,
     id: Number.isFinite(userId) ? userId : null,
+    organizationId,
     metaBusinessAccountId,
     metaAppId,
+    metaPhoneNumberId,
   };
 };
 

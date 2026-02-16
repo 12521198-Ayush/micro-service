@@ -52,8 +52,54 @@ const toMetaRequestError = (error, operation) => {
   });
 };
 
-const defaultTemplateFields =
-  'id,name,language,category,status,quality_score,rejected_reason,components,parameter_format,created_time';
+export const DEFAULT_TEMPLATE_FIELDS = Object.freeze([
+  'id',
+  'name',
+  'language',
+  'category',
+  'status',
+  'quality_score',
+  'rejected_reason',
+  'components',
+  'parameter_format',
+]);
+
+export const sanitizeTemplateFields = (value) => {
+  const source =
+    typeof value === 'string'
+      ? value.split(',')
+      : Array.isArray(value)
+      ? value
+      : [];
+
+  const normalized = [
+    ...new Set(
+      source
+        .map((field) => String(field || '').trim())
+        .filter((field) => field.length > 0)
+    ),
+  ];
+
+  if (normalized.length === 0) {
+    return [...DEFAULT_TEMPLATE_FIELDS];
+  }
+
+  return normalized;
+};
+
+const toTemplateFieldsParam = (value) => {
+  return sanitizeTemplateFields(value).join(',');
+};
+
+const isMetaUnknownFieldError = (error) => {
+  const metaError = error?.response?.data?.error || {};
+  const message = String(metaError.message || '');
+
+  return (
+    Number(metaError.code) === 100 &&
+    /nonexisting field/i.test(message)
+  );
+};
 
 const normalizeUploadSessionPath = (uploadSessionId) => {
   const raw = String(uploadSessionId || '').trim();
@@ -149,12 +195,40 @@ export const metaTemplateApi = {
     }
   },
 
+  async getTemplateByMetaId(metaTemplateId, fields = DEFAULT_TEMPLATE_FIELDS) {
+    ensureMetaAuth();
+
+    const requestedFields = toTemplateFieldsParam(fields);
+
+    try {
+      const { data } = await metaApiClient.get(`/${metaTemplateId}`, {
+        params: { fields: requestedFields },
+      });
+
+      return data;
+    } catch (error) {
+      if (isMetaUnknownFieldError(error)) {
+        try {
+          const { data } = await metaApiClient.get(`/${metaTemplateId}`, {
+            params: { fields: toTemplateFieldsParam(DEFAULT_TEMPLATE_FIELDS) },
+          });
+
+          return data;
+        } catch (fallbackError) {
+          throw toMetaRequestError(fallbackError, 'get template by id');
+        }
+      }
+
+      throw toMetaRequestError(error, 'get template by id');
+    }
+  },
+
   async listTemplates(metaBusinessAccountId, options = {}) {
     ensureMetaAuth();
 
     const params = {
       limit: options.limit || 50,
-      fields: options.fields || defaultTemplateFields,
+      fields: toTemplateFieldsParam(options.fields || DEFAULT_TEMPLATE_FIELDS),
     };
 
     if (options.after) {
@@ -175,6 +249,24 @@ export const metaTemplateApi = {
 
       return data;
     } catch (error) {
+      if (isMetaUnknownFieldError(error)) {
+        try {
+          const { data } = await metaApiClient.get(
+            `/${metaBusinessAccountId}/message_templates`,
+            {
+              params: {
+                ...params,
+                fields: toTemplateFieldsParam(DEFAULT_TEMPLATE_FIELDS),
+              },
+            }
+          );
+
+          return data;
+        } catch (fallbackError) {
+          throw toMetaRequestError(fallbackError, 'list templates');
+        }
+      }
+
       throw toMetaRequestError(error, 'list templates');
     }
   },
@@ -246,6 +338,7 @@ export const metaTemplateApi = {
       throw toMetaRequestError(error, 'upload file chunk');
     }
   },
+
 };
 
 export { normalizeUploadSessionPath };

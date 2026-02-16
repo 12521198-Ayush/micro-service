@@ -1,9 +1,10 @@
 const cacheKeys = {
-  templateList: (userId, serializedFilters) => `templates:${userId}:list:${serializedFilters}`,
-  templateByUuid: (userId, uuid) => `templates:${userId}:uuid:${uuid}`,
+  templateList: (tenantKey, serializedFilters) =>
+    `templates:${tenantKey}:list:${serializedFilters}`,
+  templateByUuid: (tenantKey, uuid) => `templates:${tenantKey}:uuid:${uuid}`,
 
   patterns: {
-    userTemplates: (userId) => `templates:${userId}:*`,
+    tenantTemplates: (tenantKey) => `templates:${tenantKey}:*`,
   },
 };
 
