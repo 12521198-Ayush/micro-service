@@ -1,23 +1,59 @@
 import Campaign from '../models/Campaign.js';
 import { cache } from '../config/redis.js';
 import cacheKeys from '../utils/cacheKeys.js';
+import axios from 'axios';
+
+const CONTACT_SERVICE_URL = process.env.CONTACT_SERVICE_URL || 'http://localhost:3002';
+const TEMPLATE_SERVICE_URL = process.env.TEMPLATE_SERVICE_URL || 'http://localhost:3004';
 
 // @desc    Create a new campaign
 // @route   POST /api/campaigns
 // @access  Private
 export const createCampaign = async (req, res) => {
   try {
-    const { name, description, templateId, groupId, scheduledAt, status } = req.body;
+    const { name, description, templateId, groupId, scheduledAt, status, metadata } = req.body;
     const userId = req.user.id || req.user.userId;
+    const authToken = req.headers.authorization;
+
+    // Fetch template name if templateId provided
+    let templateName = null;
+    if (templateId) {
+      try {
+        const tRes = await axios.get(
+          `${TEMPLATE_SERVICE_URL}/api/templates/${templateId}`,
+          { headers: { Authorization: authToken } }
+        );
+        templateName = tRes.data?.data?.name || null;
+      } catch (e) {
+        console.warn('Could not fetch template name:', e.message);
+      }
+    }
+
+    // Fetch group name if groupId provided
+    let groupName = null;
+    if (groupId) {
+      try {
+        const gRes = await axios.get(
+          `${CONTACT_SERVICE_URL}/api/groups/${groupId}`,
+          { headers: { Authorization: authToken } }
+        );
+        groupName = gRes.data?.data?.name || null;
+      } catch (e) {
+        console.warn('Could not fetch group name:', e.message);
+      }
+    }
 
     const campaign = await Campaign.create({
       userId,
       name,
       description,
       templateId,
+      template_name: templateName,
       groupId,
+      group_name: groupName,
       scheduledAt,
-      status: status || 'draft'
+      status: status || 'draft',
+      metadata: metadata ? JSON.stringify(metadata) : null
     });
 
     // Invalidate user campaigns cache

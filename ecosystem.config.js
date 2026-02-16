@@ -20,7 +20,7 @@ module.exports = {
     },
     {
       name: 'contact-service',
-      cwd: '/var/www/html/microservices-nyife/micro-service/Contact Service',
+      cwd: '/var/www/html/microservices-nyife/micro-service/contact-service',
       script: 'src/app.js',
       interpreter: 'node',
       env: {
@@ -122,6 +122,24 @@ module.exports = {
       max_memory_restart: '500M',
       error_file: '/var/log/pm2/kafka-service-error.log',
       out_file: '/var/log/pm2/kafka-service-out.log',
+      time: true
+    },
+    {
+      name: 'automation-service',
+      cwd: '/var/www/html/microservices-nyife/micro-service/automation-service',
+      script: 'src/app.js',
+      interpreter: 'node',
+      node_args: '--experimental-modules',
+      env: {
+        NODE_ENV: 'production',
+        PORT: 3008
+      },
+      instances: 1,
+      exec_mode: 'fork',
+      watch: false,
+      max_memory_restart: '500M',
+      error_file: '/var/log/pm2/automation-service-error.log',
+      out_file: '/var/log/pm2/automation-service-out.log',
       time: true
     },
     {

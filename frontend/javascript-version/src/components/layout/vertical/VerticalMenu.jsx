@@ -75,6 +75,9 @@ const VerticalMenu = ({ scrollMenu }) => {
           <MenuItem href='/message-template/create'>Create Template</MenuItem>
         </SubMenu>
         
+        {/* Automation */}
+        <MenuItem href='/automation/list' icon={<i className='ri-flow-chart' />}>Automation</MenuItem>
+        
         {/* Team Management */}
         <SubMenu label='Team' icon={<i className='ri-team-line' />}>
           <MenuItem href='/team/list'>Departments & Agents</MenuItem>

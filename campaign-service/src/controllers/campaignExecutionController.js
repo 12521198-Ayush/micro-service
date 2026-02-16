@@ -50,17 +50,18 @@ export const executeCampaign = async (req, res) => {
 
     // Get template details
     const templateResponse = await axios.get(
-      `${TEMPLATE_SERVICE_URL}/template-service/api/templates/${campaign.template_id}`,
+      `${TEMPLATE_SERVICE_URL}/api/templates/${campaign.template_id}`,
       { headers: { Authorization: authToken } }
     );
     const template = templateResponse.data.data;
 
     // Get group contacts
     const contactsResponse = await axios.get(
-      `${CONTACT_SERVICE_URL}/contact-service/api/groups/${campaign.group_id}/contacts`,
+      `${CONTACT_SERVICE_URL}/api/groups/${campaign.group_id}`,
       { headers: { Authorization: authToken } }
     );
-    const contacts = contactsResponse.data.data || [];
+    const groupData = contactsResponse.data.data || {};
+    const contacts = groupData.directContacts || groupData.contacts || [];
 
     if (contacts.length === 0) {
       return res.status(400).json({
@@ -71,7 +72,7 @@ export const executeCampaign = async (req, res) => {
 
     // Get user's WABA details
     const userResponse = await axios.get(
-      `${USER_SERVICE_URL}/user-service/api/embedded-signup/accounts`,
+      `${USER_SERVICE_URL}/api/embedded-signup/accounts`,
       { headers: { Authorization: authToken } }
     );
     const wabaAccounts = userResponse.data.data || [];
@@ -101,13 +102,32 @@ export const executeCampaign = async (req, res) => {
       started_at: new Date()
     });
 
+    // Create campaign logs for each contact
+    for (const contact of contacts) {
+      await Campaign.createLog({
+        campaignId: id,
+        contactId: contact.id,
+        contactName: `${contact.firstName || ''} ${contact.lastName || ''}`.trim(),
+        phoneNumber: `${contact.countryCode || ''}${contact.phone || contact.phone_number || ''}`,
+        status: 'pending'
+      });
+    }
+
+    // Parse campaign metadata for template parameters
+    const campaignMetadata = campaign.metadata ? (typeof campaign.metadata === 'string' ? JSON.parse(campaign.metadata) : campaign.metadata) : {};
+
     // Prepare recipients for Kafka
     const recipients = contacts.map(contact => ({
-      phone: contact.phone_number,
-      name: contact.name,
+      phone: `${contact.countryCode || ''}${contact.phone || contact.phone_number || ''}`,
+      name: `${contact.firstName || ''} ${contact.lastName || ''}`.trim(),
+      contactId: contact.id,
       variables: {
-        name: contact.name,
-        ...contact.custom_fields
+        name: `${contact.firstName || ''} ${contact.lastName || ''}`.trim(),
+        first_name: contact.firstName || '',
+        last_name: contact.lastName || '',
+        phone: contact.phone || contact.phone_number || '',
+        email: contact.email || '',
+        ...(campaignMetadata.bodyParameters || {})
       }
     }));
 
@@ -117,6 +137,7 @@ export const executeCampaign = async (req, res) => {
       accessToken: await getAccessToken(wabaAccount.wabaId, userId),
       templateName: template.name,
       language: template.language || 'en',
+      components: campaignMetadata.components || template.components || [],
       recipients
     });
 
@@ -459,7 +480,7 @@ async function getAccessToken(wabaId, userId) {
   // For now, using environment variable as fallback
   try {
     const response = await axios.get(
-      `${USER_SERVICE_URL}/user-service/api/embedded-signup/accounts`,
+      `${USER_SERVICE_URL}/api/embedded-signup/accounts`,
       { 
         headers: { 
           Authorization: `Bearer ${process.env.INTERNAL_API_KEY}`,

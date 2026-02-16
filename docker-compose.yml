@@ -253,6 +253,31 @@ services:
       - kafka
     restart: unless-stopped
 
+  automation-service:
+    build:
+      context: ./automation-service
+      dockerfile: Dockerfile
+    container_name: automation-service
+    ports:
+      - "3008:3008"
+    environment:
+      - NODE_ENV=production
+      - PORT=3008
+      - DB_HOST=mysql
+      - DB_PORT=3306
+      - DB_NAME=whatsapp_platform
+      - DB_USER=root
+      - DB_PASSWORD=${DB_PASSWORD:-password}
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - JWT_SECRET=${JWT_SECRET}
+      - CONTACT_SERVICE_URL=http://contact-service:3002
+      - WHATSAPP_SERVICE_URL=http://whatsapp-service:3006
+    depends_on:
+      - mysql
+      - redis
+    restart: unless-stopped
+
   # ==================== FRONTEND ====================
 
   frontend:
@@ -272,6 +297,7 @@ services:
       - campaign-service
       - template-service
       - whatsapp-service
+      - automation-service
     restart: unless-stopped
 
   # ==================== NGINX REVERSE PROXY ====================
@@ -293,6 +319,7 @@ services:
       - team-service
       - whatsapp-service
       - kafka-service
+      - automation-service
       - frontend
     restart: unless-stopped
 
