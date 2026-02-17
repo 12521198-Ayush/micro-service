@@ -245,11 +245,25 @@ class FlowTemplateService {
     }
 
     try {
-      await FlowTemplateRepository.createDraftVersion({
+      const draftVersion = await FlowTemplateRepository.createDraftVersion({
         templateId: template.id,
         userId,
         payload: validation.normalizedPayload,
       });
+
+      if (template.metaFlowId && draftVersion?.id) {
+        const refreshedTemplate = await FlowTemplateRepository.getTemplateByUuid(tenant, flowId);
+        const versionGraph = await FlowTemplateRepository.getVersionGraph(draftVersion.id);
+        const metaFlowJson = mapInternalFlowToMetaFlowJson({
+          template: refreshedTemplate || template,
+          versionGraph,
+        });
+        const syncResult = await metaTemplateApi.updateFlowJson(
+          template.metaFlowId,
+          metaFlowJson
+        );
+        ensureMetaFlowSyncSucceeded(syncResult, template.metaFlowId);
+      }
     } catch (error) {
       if (FlowTemplateRepository.isConflictError(error)) {
         throw new AppError(
@@ -271,6 +285,16 @@ class FlowTemplateService {
   }
 
   static async deleteFlow({ tenant, userId, flowId }) {
+    const template = await getTemplateOrThrow(tenant, flowId);
+
+    if (template.metaFlowId) {
+      await metaTemplateApi.deleteFlow(template.metaFlowId);
+    } else {
+      throw new AppError(409, 'Flow is missing Meta flow id and cannot be deleted', {
+        code: flowErrorCodes.FLOW_DELETE_FAILED,
+      });
+    }
+
     const deleted = await FlowTemplateRepository.softDeleteTemplate(
       tenant,
       flowId,

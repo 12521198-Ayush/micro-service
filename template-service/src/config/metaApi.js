@@ -69,8 +69,8 @@ export const sanitizeTemplateFields = (value) => {
     typeof value === 'string'
       ? value.split(',')
       : Array.isArray(value)
-      ? value
-      : [];
+        ? value
+        : [];
 
   const normalized = [
     ...new Set(
@@ -180,6 +180,24 @@ export const metaTemplateApi = {
       return data;
     } catch (error) {
       throw toMetaRequestError(error, 'publish flow');
+    }
+  },
+
+  async deleteFlow(metaFlowId) {
+    ensureMetaAuth();
+
+    const flowId = String(metaFlowId || '').trim();
+    if (!flowId) {
+      throw new AppError(400, 'metaFlowId is required to delete flow', {
+        code: 'META_FLOW_ID_MISSING',
+      });
+    }
+
+    try {
+      const { data } = await metaApiClient.delete(`/${flowId}`);
+      return data;
+    } catch (error) {
+      throw toMetaRequestError(error, 'delete flow');
     }
   },
 
@@ -294,14 +312,49 @@ export const metaTemplateApi = {
     }
   },
 
-  async deleteTemplateByName(metaBusinessAccountId, name) {
+  async deleteTemplateByName(metaBusinessAccountId, input) {
     ensureMetaAuth();
+
+    const accountId = String(metaBusinessAccountId || '').trim();
+    if (!accountId) {
+      throw new AppError(400, 'metaBusinessAccountId is required to delete template', {
+        code: 'META_BUSINESS_ACCOUNT_ID_MISSING',
+      });
+    }
+
+    const payload =
+      input && typeof input === 'object'
+        ? input
+        : {
+          name: input,
+        };
+
+    const name = String(payload?.name || '').trim();
+    if (!name) {
+      throw new AppError(400, 'Template name is required to delete template by name', {
+        code: 'META_TEMPLATE_NAME_MISSING',
+      });
+    }
+
+    const params = {
+      name,
+    };
+
+    const language = String(payload?.language || '').trim();
+    if (language) {
+      params.language = language;
+    }
+
+    const hsmId = String(payload?.metaTemplateId || payload?.hsmId || '').trim();
+    if (hsmId) {
+      params.hsm_id = hsmId;
+    }
 
     try {
       const { data } = await metaApiClient.delete(
-        `/${metaBusinessAccountId}/message_templates`,
+        `/${accountId}/message_templates`,
         {
-          params: { name },
+          params,
         }
       );
 
