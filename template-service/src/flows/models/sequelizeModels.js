@@ -24,6 +24,10 @@ export const defineFlowTemplateModel = (sequelize, DataTypes) => {
         type: DataTypes.STRING(64),
         allowNull: false,
       },
+      meta_flow_id: {
+        type: DataTypes.STRING(64),
+        allowNull: true,
+      },
       template_key: {
         type: DataTypes.STRING(128),
         allowNull: false,

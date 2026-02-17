@@ -1,4 +1,6 @@
 import AppError from '../../errors/AppError.js';
+import env from '../../config/env.js';
+import { metaTemplateApi } from '../../config/metaApi.js';
 import flowErrorCodes from '../constants/errorCodes.js';
 import FlowTemplateRepository from '../repositories/flowTemplateRepository.js';
 import {
@@ -12,12 +14,43 @@ import {
   toFlowTemplateListItemDto,
 } from '../dto/flowTemplateDto.js';
 import { slugify } from '../utils/flowHelpers.js';
+import { mapInternalFlowToMetaFlowJson } from '../utils/metaFlowJsonMapper.js';
 
 const toFlowValidationError = (errors) => {
   return new AppError(422, 'Flow payload validation failed', {
     code: flowErrorCodes.FLOW_VALIDATION_FAILED,
     details: errors,
   });
+};
+
+const resolveMetaFlowId = (metaResponse) => {
+  const candidate =
+    metaResponse?.id ||
+    metaResponse?.flow_id ||
+    metaResponse?.flowId ||
+    metaResponse?.data?.id ||
+    metaResponse?.data?.flow_id ||
+    null;
+
+  return candidate ? String(candidate).trim() : null;
+};
+
+const ensureMetaFlowSyncSucceeded = (syncResult, metaFlowId) => {
+  const validationErrors =
+    syncResult?.validation_errors ||
+    syncResult?.validationErrors ||
+    syncResult?.errors ||
+    null;
+
+  if (Array.isArray(validationErrors) && validationErrors.length > 0) {
+    throw new AppError(422, 'Meta flow json validation failed', {
+      code: flowErrorCodes.FLOW_META_SYNC_FAILED,
+      details: {
+        metaFlowId,
+        validationErrors,
+      },
+    });
+  }
 };
 
 const resolveVersion = async ({ template, versionNumber }) => {
@@ -98,11 +131,46 @@ class FlowTemplateService {
     }
 
     try {
+      const metaFlow = await metaTemplateApi.createFlow(tenant.metaBusinessAccountId, {
+        name: validation.normalizedPayload.name,
+        categories: ['OTHER'],
+        endpointUri: env.metaFlowEndpointUri || undefined,
+      });
+      const metaFlowId = resolveMetaFlowId(metaFlow);
+
+      if (!metaFlowId) {
+        throw new AppError(502, 'Meta flow creation did not return a flow id', {
+          code: flowErrorCodes.FLOW_CREATION_FAILED,
+          details: metaFlow,
+        });
+      }
+
       const creation = await FlowTemplateRepository.createTemplateWithVersion({
         tenant,
         userId,
-        payload: validation.normalizedPayload,
+        payload: {
+          ...validation.normalizedPayload,
+          flowId: metaFlowId,
+        },
       });
+
+      const createdTemplate = await FlowTemplateRepository.getTemplateByUuid(
+        tenant,
+        creation.templateUuid
+      );
+      const createdVersion = await FlowTemplateRepository.getVersionByNumber(
+        createdTemplate.id,
+        creation.versionNumber
+      );
+      const createdVersionGraph = await FlowTemplateRepository.getVersionGraph(
+        createdVersion.id
+      );
+      const metaFlowJson = mapInternalFlowToMetaFlowJson({
+        template: createdTemplate,
+        versionGraph: createdVersionGraph,
+      });
+      const syncResult = await metaTemplateApi.updateFlowJson(metaFlowId, metaFlowJson);
+      ensureMetaFlowSyncSucceeded(syncResult, metaFlowId);
 
       return this.getFlowById({
         tenant,
@@ -252,6 +320,22 @@ class FlowTemplateService {
         code: flowErrorCodes.FLOW_VERSION_NOT_FOUND,
       });
     }
+
+    if (!template.metaFlowId) {
+      throw new AppError(409, 'Flow is missing Meta flow id and cannot be published to Meta', {
+        code: flowErrorCodes.FLOW_PUBLISH_FAILED,
+      });
+    }
+
+    const versionGraph = await FlowTemplateRepository.getVersionGraph(targetVersion.id);
+    const metaFlowJson = mapInternalFlowToMetaFlowJson({
+      template,
+      versionGraph,
+    });
+    const syncResult = await metaTemplateApi.updateFlowJson(template.metaFlowId, metaFlowJson);
+    ensureMetaFlowSyncSucceeded(syncResult, template.metaFlowId);
+
+    await metaTemplateApi.publishFlow(template.metaFlowId);
 
     await FlowTemplateRepository.publishVersion({
       templateId: template.id,

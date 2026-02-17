@@ -43,6 +43,7 @@ const env = {
   metaApiVersion: process.env.META_API_VERSION || 'v20.0',
   metaAccessToken: process.env.META_ACCESS_TOKEN || '',
   metaApiTimeoutMs: parseInteger(process.env.META_API_TIMEOUT_MS, 20000),
+  metaFlowEndpointUri: process.env.META_FLOW_ENDPOINT_URI || '',
   flowWebhookSecret: process.env.FLOW_WEBHOOK_SECRET || '',
   metaWebhookVerifyToken: process.env.META_WEBHOOK_VERIFY_TOKEN || '',
   webhookDispatchIntervalMs: parseInteger(

@@ -21,6 +21,7 @@ const formatTemplateRow = (row) => {
     organizationId: row.organization_id,
     metaBusinessAccountId: row.meta_business_account_id,
     metaAppId: row.meta_app_id,
+    metaFlowId: row.meta_flow_id,
     templateKey: row.template_key,
     name: row.name,
     description: row.description,
@@ -182,6 +183,7 @@ class FlowTemplateRepository {
           organization_id,
           meta_business_account_id,
           meta_app_id,
+          meta_flow_id,
           template_key,
           name,
           description,
@@ -189,13 +191,14 @@ class FlowTemplateRepository {
           status,
           created_by,
           updated_by
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'DRAFT', ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'DRAFT', ?, ?)
         `,
         [
           templateUuid,
           tenant.organizationId,
           tenant.metaBusinessAccountId,
           tenant.metaAppId,
+          payload.flowId,
           payload.templateKey,
           payload.name,
           payload.description,
@@ -286,6 +289,7 @@ class FlowTemplateRepository {
             template_key = ?,
             description = ?,
             category = ?,
+            meta_flow_id = COALESCE(?, meta_flow_id),
             current_draft_version_id = ?,
             status = 'DRAFT',
             updated_by = ?,
@@ -297,6 +301,7 @@ class FlowTemplateRepository {
           payload.templateKey,
           payload.description,
           payload.category,
+          payload.flowId,
           version.id,
           userId || null,
           templateId,
@@ -480,10 +485,10 @@ class FlowTemplateRepository {
 
   static async listTemplatesByTenant(tenant, filters = {}) {
     const conditions = [
-      'organization_id = ?',
-      'meta_business_account_id = ?',
-      'meta_app_id = ?',
-      'deleted_at IS NULL',
+      'ft.organization_id = ?',
+      'ft.meta_business_account_id = ?',
+      'ft.meta_app_id = ?',
+      'ft.deleted_at IS NULL',
     ];
     const values = [
       tenant.organizationId,
@@ -492,17 +497,17 @@ class FlowTemplateRepository {
     ];
 
     if (filters.status) {
-      conditions.push('status = ?');
+      conditions.push('ft.status = ?');
       values.push(filters.status);
     }
 
     if (filters.category) {
-      conditions.push('category = ?');
+      conditions.push('ft.category = ?');
       values.push(filters.category);
     }
 
     if (filters.search) {
-      conditions.push('(name LIKE ? OR template_key LIKE ?)');
+      conditions.push('(ft.name LIKE ? OR ft.template_key LIKE ?)');
       values.push(`%${filters.search}%`, `%${filters.search}%`);
     }
 
@@ -529,7 +534,7 @@ class FlowTemplateRepository {
     const [countRows] = await pool.execute(
       `
       SELECT COUNT(*) AS total
-      FROM flow_templates
+      FROM flow_templates ft
       WHERE ${whereClause}
       `,
       values
@@ -827,6 +832,7 @@ class FlowTemplateRepository {
     const payload = {
       templateKey: cloneTemplateKey,
       name: cloneName,
+      flowId: sourceTemplate.metaFlowId,
       description: sourceTemplate.description,
       category: sourceTemplate.category,
       webhookMapping: sourceVersionGraph.webhookMapping,

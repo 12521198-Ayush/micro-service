@@ -7,6 +7,7 @@ import {
 const basePayload = {
   name: 'Lead capture',
   template_key: 'lead_capture',
+  flow_id: '123456789012345',
   category: 'LEAD_GENERATION',
   screens: [
     {

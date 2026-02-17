@@ -336,7 +336,13 @@ class TenantWebhookEventModel {
   }
 
   static async listRecentEventsForTenant(tenant, limit = 50) {
-    const [rows] = await pool.execute(
+    const parsedLimit = Number.parseInt(limit, 10);
+    const safeLimit = Math.min(
+      Math.max(Number.isFinite(parsedLimit) ? parsedLimit : 50, 1),
+      100
+    );
+
+    const [rows] = await pool.query(
       `
       SELECT *
       FROM tenant_webhook_events
@@ -344,13 +350,12 @@ class TenantWebhookEventModel {
         AND meta_business_account_id = ?
         AND meta_app_id = ?
       ORDER BY created_at DESC
-      LIMIT ?
+      LIMIT ${safeLimit}
       `,
       [
         tenant.organizationId,
         tenant.metaBusinessAccountId,
         tenant.metaAppId,
-        limit,
       ]
     );
 

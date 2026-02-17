@@ -141,6 +141,122 @@ const normalizeUploadSessionPath = (uploadSessionId) => {
 };
 
 export const metaTemplateApi = {
+  async createFlow(metaBusinessAccountId, payload = {}) {
+    ensureMetaAuth();
+
+    const accountId = String(metaBusinessAccountId || '').trim();
+    if (!accountId) {
+      throw new AppError(400, 'metaBusinessAccountId is required to create flow', {
+        code: 'META_BUSINESS_ACCOUNT_ID_MISSING',
+      });
+    }
+
+    const requestPayload = {
+      name: payload.name,
+      categories: Array.isArray(payload.categories) ? payload.categories : ['OTHER'],
+      ...(payload.endpointUri ? { endpoint_uri: payload.endpointUri } : {}),
+    };
+
+    try {
+      const { data } = await metaApiClient.post(`/${accountId}/flows`, requestPayload);
+      return data;
+    } catch (error) {
+      throw toMetaRequestError(error, 'create flow');
+    }
+  },
+
+  async publishFlow(metaFlowId) {
+    ensureMetaAuth();
+
+    const flowId = String(metaFlowId || '').trim();
+    if (!flowId) {
+      throw new AppError(400, 'metaFlowId is required to publish flow', {
+        code: 'META_FLOW_ID_MISSING',
+      });
+    }
+
+    try {
+      const { data } = await metaApiClient.post(`/${flowId}/publish`, null);
+      return data;
+    } catch (error) {
+      throw toMetaRequestError(error, 'publish flow');
+    }
+  },
+
+  async getFlow(metaFlowId) {
+    ensureMetaAuth();
+
+    const flowId = String(metaFlowId || '').trim();
+    if (!flowId) {
+      throw new AppError(400, 'metaFlowId is required to fetch flow', {
+        code: 'META_FLOW_ID_MISSING',
+      });
+    }
+
+    try {
+      const { data } = await metaApiClient.get(`/${flowId}`);
+      return data;
+    } catch (error) {
+      throw toMetaRequestError(error, 'get flow');
+    }
+  },
+
+  async updateFlowJson(metaFlowId, flowJson) {
+    ensureMetaAuth();
+
+    const flowId = String(metaFlowId || '').trim();
+    if (!flowId) {
+      throw new AppError(400, 'metaFlowId is required to upload flow json', {
+        code: 'META_FLOW_ID_MISSING',
+      });
+    }
+
+    if (!flowJson || typeof flowJson !== 'object') {
+      throw new AppError(400, 'flowJson must be a valid object', {
+        code: 'META_FLOW_JSON_INVALID',
+      });
+    }
+
+    try {
+      const formData = new FormData();
+      const content = JSON.stringify(flowJson, null, 2);
+      const fileBlob = new Blob([content], { type: 'application/json' });
+
+      formData.append('file', fileBlob, 'flow.json');
+      formData.append('name', 'flow.json');
+      formData.append('asset_type', 'FLOW_JSON');
+
+      const response = await fetch(
+        `${metaApiClient.defaults.baseURL}/${encodeURIComponent(flowId)}/assets`,
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${env.metaAccessToken}`,
+          },
+          body: formData,
+        }
+      );
+
+      const responseData = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        throw toMetaRequestError(
+          {
+            response: {
+              status: response.status,
+              data: responseData,
+            },
+          },
+          'update flow json'
+        );
+      }
+
+      return responseData;
+    } catch (error) {
+      throw toMetaRequestError(error, 'update flow json');
+    }
+  },
+
   async createTemplate(metaBusinessAccountId, payload) {
     ensureMetaAuth();
 

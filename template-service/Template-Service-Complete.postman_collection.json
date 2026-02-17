@@ -2,7 +2,7 @@
   "info": {
     "_postman_id": "b8a6e93d-5ed5-4b57-9a7f-2ef9a3b0c4f1",
     "name": "Template Service - Complete SaaS APIs",
-    "description": "Single complete collection covering template APIs, flow APIs, webhook config APIs, and inbound webhook simulations with tenant-safe sample data.",
+    "description": "Single complete collection covering template APIs, flow APIs, webhook config APIs, and inbound webhook simulations with tenant-safe sample data. Flow APIs are Meta-synced: create gets official Meta flow_id, publish uploads Flow JSON to Meta assets, then publishes on Meta and local DB.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "auth": {
@@ -34,7 +34,7 @@
     },
     {
       "key": "meta_app_id",
-      "value": "123456789012345"
+      "value": "1915414522619516"
     },
     {
       "key": "meta_phone_number_id",
@@ -63,6 +63,10 @@
     {
       "key": "flow_id",
       "value": "replace_flow_uuid"
+    },
+    {
+      "key": "meta_flow_id",
+      "value": "replace_official_meta_flow_id"
     },
     {
       "key": "cloned_flow_id",
@@ -537,7 +541,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"lead_capture_flow\",\n  \"category\": \"UTILITY\",\n  \"language\": \"en_US\",\n  \"components\": [\n    {\n      \"type\": \"BODY\",\n      \"text\": \"Please continue in flow.\"\n    },\n    {\n      \"type\": \"BUTTONS\",\n      \"buttons\": [\n        {\n          \"type\": \"FLOW\",\n          \"text\": \"Open Flow\",\n          \"flow_id\": \"123456789\"\n        }\n      ]\n    }\n  ]\n}",
+              "raw": "{\n  \"name\": \"lead_capture_flow\",\n  \"category\": \"UTILITY\",\n  \"language\": \"en_US\",\n  \"components\": [\n    {\n      \"type\": \"BODY\",\n      \"text\": \"Please continue in flow.\"\n    },\n    {\n      \"type\": \"BUTTONS\",\n      \"buttons\": [\n        {\n          \"type\": \"FLOW\",\n          \"text\": \"Open Flow\",\n          \"flow_id\": \"{{meta_flow_id}}\"\n        }\n      ]\n    }\n  ]\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -929,7 +933,7 @@
       "name": "Flow Templates Engine",
       "item": [
         {
-          "name": "Create Flow",
+          "name": "Create Flow (Meta Synced)",
           "request": {
             "method": "POST",
             "header": [
@@ -969,7 +973,9 @@
                 "exec": [
                   "if (pm.response.code === 201) {",
                   "  const flowId = pm.response.json()?.data?.id;",
+                  "  const metaFlowId = pm.response.json()?.data?.flowId;",
                   "  if (flowId) pm.collectionVariables.set(\"flow_id\", flowId);",
+                  "  if (metaFlowId) pm.collectionVariables.set(\"meta_flow_id\", metaFlowId);",
                   "}"
                 ]
               }
@@ -1074,7 +1080,7 @@
           }
         },
         {
-          "name": "Publish Flow",
+          "name": "Publish Flow (Meta + Local)",
           "request": {
             "method": "POST",
             "header": [
@@ -1105,7 +1111,23 @@
               }
             },
             "url": "{{base_url}}/flows/{{flow_id}}/publish"
-          }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const internalId = pm.response.json()?.data?.id;",
+                  "  const metaId = pm.response.json()?.data?.flowId;",
+                  "  if (internalId) pm.collectionVariables.set(\"flow_id\", internalId);",
+                  "  if (metaId) pm.collectionVariables.set(\"meta_flow_id\", metaId);",
+                  "}"
+                ]
+              }
+            }
+          ]
         },
         {
           "name": "Clone Flow",
