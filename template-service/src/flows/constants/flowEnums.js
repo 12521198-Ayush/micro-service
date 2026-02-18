@@ -20,6 +20,9 @@ export const FLOW_CATEGORIES = Object.freeze([
 export const FLOW_TEMPLATE_STATUSES = Object.freeze([
   'DRAFT',
   'PUBLISHED',
+  'DEPRECATED',
+  'THROTTLED',
+  'BLOCKED',
   'ARCHIVED',
 ]);
 

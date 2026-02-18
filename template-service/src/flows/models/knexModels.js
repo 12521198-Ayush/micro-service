@@ -29,7 +29,10 @@ export const createFlowTemplateModel = (knex) => {
         'SURVEYS',
       ])
       .notNullable();
-    table.enu('status', ['DRAFT', 'PUBLISHED', 'ARCHIVED']).notNullable().defaultTo('DRAFT');
+    table
+      .enu('status', ['DRAFT', 'PUBLISHED', 'DEPRECATED', 'THROTTLED', 'BLOCKED', 'ARCHIVED'])
+      .notNullable()
+      .defaultTo('DRAFT');
     table.bigInteger('current_draft_version_id').unsigned().nullable();
     table.bigInteger('current_published_version_id').unsigned().nullable();
     table.bigInteger('created_by').unsigned().nullable();

@@ -62,7 +62,14 @@ export const defineFlowTemplateModel = (sequelize, DataTypes) => {
         allowNull: false,
       },
       status: {
-        type: DataTypes.ENUM('DRAFT', 'PUBLISHED', 'ARCHIVED'),
+        type: DataTypes.ENUM(
+          'DRAFT',
+          'PUBLISHED',
+          'DEPRECATED',
+          'THROTTLED',
+          'BLOCKED',
+          'ARCHIVED'
+        ),
         allowNull: false,
         defaultValue: 'DRAFT',
       },

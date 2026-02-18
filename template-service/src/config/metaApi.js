@@ -183,6 +183,24 @@ export const metaTemplateApi = {
     }
   },
 
+  async deprecateFlow(metaFlowId) {
+    ensureMetaAuth();
+
+    const flowId = String(metaFlowId || '').trim();
+    if (!flowId) {
+      throw new AppError(400, 'metaFlowId is required to deprecate flow', {
+        code: 'META_FLOW_ID_MISSING',
+      });
+    }
+
+    try {
+      const { data } = await metaApiClient.post(`/${flowId}/deprecate`, null);
+      return data;
+    } catch (error) {
+      throw toMetaRequestError(error, 'deprecate flow');
+    }
+  },
+
   async deleteFlow(metaFlowId) {
     ensureMetaAuth();
 
@@ -212,11 +230,86 @@ export const metaTemplateApi = {
     }
 
     try {
-      const { data } = await metaApiClient.get(`/${flowId}`);
+      const { data } = await metaApiClient.get(`/${flowId}`, {
+        params: {
+          fields: 'id,name,status,categories,validation_errors',
+        },
+      });
       return data;
     } catch (error) {
+      if (isMetaUnknownFieldError(error)) {
+        try {
+          const { data } = await metaApiClient.get(`/${flowId}`);
+          return data;
+        } catch (fallbackError) {
+          throw toMetaRequestError(fallbackError, 'get flow');
+        }
+      }
+
       throw toMetaRequestError(error, 'get flow');
     }
+  },
+
+  async listFlows(metaBusinessAccountId, options = {}) {
+    ensureMetaAuth();
+
+    const accountId = String(metaBusinessAccountId || '').trim();
+    if (!accountId) {
+      throw new AppError(400, 'metaBusinessAccountId is required to list flows', {
+        code: 'META_BUSINESS_ACCOUNT_ID_MISSING',
+      });
+    }
+
+    const requestedLimit = Number.parseInt(options.limit, 10);
+    const limit = Number.isFinite(requestedLimit)
+      ? Math.min(Math.max(requestedLimit, 1), 500)
+      : 200;
+
+    const allFlows = [];
+    let afterCursor = null;
+    let pageCount = 0;
+
+    do {
+      const params = {
+        fields: 'id,name,status,categories,validation_errors',
+        limit,
+      };
+
+      if (afterCursor) {
+        params.after = afterCursor;
+      }
+
+      try {
+        const { data } = await metaApiClient.get(`/${accountId}/flows`, { params });
+        const pageData = Array.isArray(data?.data) ? data.data : [];
+        allFlows.push(...pageData);
+        afterCursor = data?.paging?.cursors?.after || null;
+      } catch (error) {
+        if (isMetaUnknownFieldError(error)) {
+          try {
+            const fallbackParams = { limit };
+            if (afterCursor) {
+              fallbackParams.after = afterCursor;
+            }
+
+            const { data } = await metaApiClient.get(`/${accountId}/flows`, {
+              params: fallbackParams,
+            });
+            const pageData = Array.isArray(data?.data) ? data.data : [];
+            allFlows.push(...pageData);
+            afterCursor = data?.paging?.cursors?.after || null;
+          } catch (fallbackError) {
+            throw toMetaRequestError(fallbackError, 'list flows');
+          }
+        } else {
+          throw toMetaRequestError(error, 'list flows');
+        }
+      }
+
+      pageCount += 1;
+    } while (afterCursor && pageCount < 20);
+
+    return allFlows;
   },
 
   async updateFlowJson(metaFlowId, flowJson) {

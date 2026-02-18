@@ -72,7 +72,10 @@ export const deleteFlow = async (req, res) => {
 
   res.status(200).json({
     success: true,
-    message: 'Flow deleted successfully',
+    message:
+      data.action === 'DEPRECATED'
+        ? 'Flow deprecated successfully'
+        : 'Flow deleted successfully',
     data,
   });
 };
@@ -88,6 +91,60 @@ export const publishFlow = async (req, res) => {
   res.status(200).json({
     success: true,
     message: 'Flow published successfully',
+    data,
+  });
+};
+
+export const retireFlow = async (req, res) => {
+  const data = await FlowTemplateService.retireFlow({
+    tenant: req.tenant,
+    userId: getUserId(req),
+    flowId: req.params.id,
+  });
+
+  res.status(200).json({
+    success: true,
+    message:
+      data.action === 'DEPRECATED'
+        ? 'Flow deprecated successfully'
+        : 'Flow deleted successfully',
+    data,
+  });
+};
+
+export const syncFlowStatus = async (req, res) => {
+  const data = await FlowTemplateService.syncFlowStatus({
+    tenant: req.tenant,
+    userId: getUserId(req),
+    flowId: req.params.id,
+  });
+
+  res.status(200).json({
+    success: true,
+    message: data.statusChanged
+      ? 'Flow status synced successfully'
+      : 'Flow status already up to date',
+    data,
+  });
+};
+
+export const syncTenantFlowStatuses = async (req, res) => {
+  const limit = req.query.limit ? Number.parseInt(req.query.limit, 10) : 100;
+  const offset = req.query.offset ? Number.parseInt(req.query.offset, 10) : 0;
+  const reconcileRaw = String(req.query.reconcile || '').trim().toLowerCase();
+  const reconcile = ['1', 'true', 'yes', 'on'].includes(reconcileRaw);
+
+  const data = await FlowTemplateService.syncTenantFlowStatuses({
+    tenant: req.tenant,
+    userId: getUserId(req),
+    limit: Number.isFinite(limit) ? limit : 100,
+    offset: Number.isFinite(offset) ? offset : 0,
+    reconcile,
+  });
+
+  res.status(200).json({
+    success: true,
+    message: 'Flow statuses synced successfully',
     data,
   });
 };
@@ -114,5 +171,8 @@ export default {
   updateFlow,
   deleteFlow,
   publishFlow,
+  retireFlow,
+  syncFlowStatus,
+  syncTenantFlowStatuses,
   cloneFlow,
 };

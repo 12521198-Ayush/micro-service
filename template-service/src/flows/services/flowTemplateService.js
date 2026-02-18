@@ -15,6 +15,10 @@ import {
 } from '../dto/flowTemplateDto.js';
 import { slugify } from '../utils/flowHelpers.js';
 import { mapInternalFlowToMetaFlowJson } from '../utils/metaFlowJsonMapper.js';
+import {
+  extractMetaFlowStatus,
+  mapMetaFlowStatusToLocalStatus,
+} from '../utils/metaFlowStatus.js';
 
 const toFlowValidationError = (errors) => {
   return new AppError(422, 'Flow payload validation failed', {
@@ -285,15 +289,48 @@ class FlowTemplateService {
   }
 
   static async deleteFlow({ tenant, userId, flowId }) {
-    const template = await getTemplateOrThrow(tenant, flowId);
+    return this.retireFlow({ tenant, userId, flowId });
+  }
 
-    if (template.metaFlowId) {
-      await metaTemplateApi.deleteFlow(template.metaFlowId);
-    } else {
-      throw new AppError(409, 'Flow is missing Meta flow id and cannot be deleted', {
-        code: flowErrorCodes.FLOW_DELETE_FAILED,
-      });
+  static async retireFlow({ tenant, userId, flowId }) {
+    const template = await getTemplateOrThrow(tenant, flowId);
+    const shouldDeprecate = ['PUBLISHED', 'THROTTLED', 'BLOCKED'].includes(
+      template.status
+    );
+
+    if (!template.metaFlowId) {
+      throw new AppError(
+        409,
+        'Flow is missing Meta flow id and cannot run retire lifecycle',
+        {
+          code: flowErrorCodes.FLOW_RETIRE_FAILED,
+        }
+      );
     }
+
+    if (shouldDeprecate) {
+      await metaTemplateApi.deprecateFlow(template.metaFlowId);
+
+      const deprecated = await FlowTemplateRepository.deprecateTemplate(
+        tenant,
+        flowId,
+        userId || null
+      );
+
+      if (!deprecated) {
+        throw new AppError(404, 'Flow not found', {
+          code: flowErrorCodes.FLOW_NOT_FOUND,
+        });
+      }
+
+      return {
+        id: flowId,
+        action: 'DEPRECATED',
+        deleted: false,
+      };
+    }
+
+    await metaTemplateApi.deleteFlow(template.metaFlowId);
 
     const deleted = await FlowTemplateRepository.softDeleteTemplate(
       tenant,
@@ -309,7 +346,338 @@ class FlowTemplateService {
 
     return {
       id: flowId,
+      action: 'DELETED',
       deleted: true,
+    };
+  }
+
+  static async syncFlowStatus({ tenant, userId, flowId }) {
+    const template = await getTemplateOrThrow(tenant, flowId);
+
+    if (!template.metaFlowId) {
+      throw new AppError(409, 'Flow is missing Meta flow id and cannot sync status', {
+        code: flowErrorCodes.FLOW_STATUS_SYNC_FAILED,
+      });
+    }
+
+    try {
+      return await this.syncTemplateStatusWithMeta({
+        template: {
+          uuid: template.uuid,
+          metaFlowId: template.metaFlowId,
+          status: template.status,
+          organizationId: template.organizationId,
+          metaBusinessAccountId: template.metaBusinessAccountId,
+          metaAppId: template.metaAppId,
+        },
+        userId,
+      });
+    } catch (error) {
+      if (error instanceof AppError) {
+        throw error;
+      }
+
+      throw new AppError(502, 'Failed to sync flow status with Meta', {
+        code: flowErrorCodes.FLOW_STATUS_SYNC_FAILED,
+        details: { message: error.message },
+      });
+    }
+  }
+
+  static async syncTenantFlowStatuses({
+    tenant,
+    userId,
+    limit = 100,
+    offset = 0,
+    reconcile = false,
+  }) {
+    const [templates, metaFlows] = await Promise.all([
+      FlowTemplateRepository.listTemplatesForStatusSync({
+        tenant,
+        limit,
+        offset,
+      }),
+      metaTemplateApi.listFlows(tenant.metaBusinessAccountId, { limit: 500 }),
+    ]);
+
+    const localByMetaFlowId = new Map();
+    templates.forEach((template) => {
+      localByMetaFlowId.set(String(template.metaFlowId), template);
+    });
+
+    const metaByFlowId = new Map();
+    metaFlows.forEach((flow) => {
+      const flowId = String(flow?.id || flow?.flow_id || '').trim();
+      if (flowId) {
+        metaByFlowId.set(flowId, flow);
+      }
+    });
+
+    const results = [];
+
+    if (reconcile) {
+      for (const [metaFlowId, metaFlow] of metaByFlowId.entries()) {
+        if (localByMetaFlowId.has(metaFlowId)) {
+          continue;
+        }
+
+        try {
+          await metaTemplateApi.deleteFlow(metaFlowId);
+          results.push({
+            id: null,
+            flowId: metaFlowId,
+            synced: true,
+            statusChanged: false,
+            reconciled: true,
+            action: 'META_EXTRA_DELETED',
+            metaStatus: extractMetaFlowStatus(metaFlow),
+          });
+        } catch (error) {
+          const metaStatus = extractMetaFlowStatus(metaFlow);
+          const canDeprecateBeforeDelete = ['PUBLISHED', 'THROTTLED', 'BLOCKED'].includes(
+            metaStatus
+          );
+
+          if (canDeprecateBeforeDelete) {
+            try {
+              await metaTemplateApi.deprecateFlow(metaFlowId);
+              await metaTemplateApi.deleteFlow(metaFlowId);
+              results.push({
+                id: null,
+                flowId: metaFlowId,
+                synced: true,
+                statusChanged: true,
+                reconciled: true,
+                action: 'META_EXTRA_DEPRECATED_AND_DELETED',
+                metaStatus,
+              });
+              continue;
+            } catch (retryError) {
+              results.push({
+                id: null,
+                flowId: metaFlowId,
+                synced: false,
+                reconciled: true,
+                action: 'META_EXTRA_DEPRECATE_DELETE_FAILED',
+                error: retryError.message,
+                metaStatus,
+              });
+              continue;
+            }
+          }
+
+          results.push({
+            id: null,
+            flowId: metaFlowId,
+            synced: false,
+            reconciled: true,
+            action: 'META_EXTRA_DELETE_FAILED',
+            error: error.message,
+            metaStatus,
+          });
+        }
+      }
+
+      for (const [localFlowId, template] of localByMetaFlowId.entries()) {
+        if (metaByFlowId.has(localFlowId)) {
+          continue;
+        }
+
+        try {
+          const deleted = await FlowTemplateRepository.softDeleteTemplate(
+            tenant,
+            template.uuid,
+            userId || null
+          );
+          results.push({
+            id: template.uuid,
+            flowId: template.metaFlowId,
+            synced: Boolean(deleted),
+            statusChanged: Boolean(deleted),
+            reconciled: true,
+            action: deleted ? 'LOCAL_EXTRA_DELETED' : 'LOCAL_EXTRA_DELETE_SKIPPED',
+          });
+        } catch (error) {
+          results.push({
+            id: template.uuid,
+            flowId: template.metaFlowId,
+            synced: false,
+            reconciled: true,
+            action: 'LOCAL_EXTRA_DELETE_FAILED',
+            error: error.message,
+          });
+        }
+      }
+    }
+
+    for (const template of templates) {
+      const metaFlow = metaByFlowId.get(String(template.metaFlowId));
+
+      if (!metaFlow) {
+        if (!reconcile) {
+          results.push({
+            id: template.uuid,
+            flowId: template.metaFlowId,
+            synced: false,
+            statusChanged: false,
+            reason: 'META_FLOW_NOT_FOUND',
+          });
+        }
+        continue;
+      }
+
+      try {
+        const result = await this.syncTemplateStatusWithMeta({
+          template,
+          metaFlow,
+          userId,
+        });
+        results.push(result);
+      } catch (error) {
+        results.push({
+          id: template.uuid,
+          flowId: template.metaFlowId,
+          synced: false,
+          error: error.message,
+        });
+      }
+    }
+
+    return {
+      total: results.length,
+      synced: results.filter((item) => item.synced).length,
+      updated: results.filter((item) => item.synced && item.statusChanged).length,
+      results,
+    };
+  }
+
+  static async syncAllFlowStatuses({ systemUserId = null } = {}) {
+    let offset = 0;
+    const limit = Math.max(Number(env.flowStatusSyncBatchSize) || 100, 1);
+    let total = 0;
+    let updated = 0;
+    let synced = 0;
+
+    while (true) {
+      const templates = await FlowTemplateRepository.listTemplatesForStatusSync({
+        limit,
+        offset,
+      });
+
+      if (templates.length === 0) {
+        break;
+      }
+
+      for (const template of templates) {
+        try {
+          const result = await this.syncTemplateStatusWithMeta({
+            template,
+            userId: systemUserId,
+          });
+          total += 1;
+          if (result.synced) {
+            synced += 1;
+          }
+          if (result.statusChanged) {
+            updated += 1;
+          }
+        } catch (error) {
+          total += 1;
+        }
+      }
+
+      offset += templates.length;
+    }
+
+    return {
+      total,
+      synced,
+      updated,
+    };
+  }
+
+  static async syncTemplateStatusWithMeta({ template, metaFlow = null, userId }) {
+    const resolvedMetaFlow =
+      metaFlow && typeof metaFlow === 'object'
+        ? metaFlow
+        : await metaTemplateApi.getFlow(template.metaFlowId);
+    const metaStatus = extractMetaFlowStatus(resolvedMetaFlow);
+    const mappedStatus = mapMetaFlowStatusToLocalStatus(metaStatus);
+
+    if (!mappedStatus) {
+      return {
+        id: template.uuid,
+        flowId: template.metaFlowId,
+        synced: false,
+        statusChanged: false,
+        status: template.status,
+        metaStatus: metaStatus || null,
+        reason: 'META_STATUS_UNSUPPORTED',
+      };
+    }
+
+    if (mappedStatus === template.status) {
+      return {
+        id: template.uuid,
+        flowId: template.metaFlowId,
+        synced: true,
+        statusChanged: false,
+        status: template.status,
+        metaStatus: mappedStatus,
+      };
+    }
+
+    const templateTenant = {
+      organizationId: template.organizationId,
+      metaBusinessAccountId: template.metaBusinessAccountId,
+      metaAppId: template.metaAppId,
+    };
+
+    if (mappedStatus === 'DEPRECATED') {
+      const updated = await FlowTemplateRepository.deprecateTemplate(
+        templateTenant,
+        template.uuid,
+        userId || null
+      );
+      if (!updated) {
+        return {
+          id: template.uuid,
+          flowId: template.metaFlowId,
+          synced: false,
+          statusChanged: false,
+          status: template.status,
+          metaStatus: mappedStatus,
+          reason: 'FLOW_NOT_FOUND_DURING_SYNC',
+        };
+      }
+    } else {
+      const updated = await FlowTemplateRepository.updateTemplateStatus(
+        templateTenant,
+        template.uuid,
+        mappedStatus,
+        userId || null
+      );
+      if (!updated) {
+        return {
+          id: template.uuid,
+          flowId: template.metaFlowId,
+          synced: false,
+          statusChanged: false,
+          status: template.status,
+          metaStatus: mappedStatus,
+          reason: 'FLOW_NOT_FOUND_DURING_SYNC',
+        };
+      }
+    }
+
+    return {
+      id: template.uuid,
+      flowId: template.metaFlowId,
+      synced: true,
+      statusChanged: true,
+      status: mappedStatus,
+      previousStatus: template.status,
+      metaStatus: mappedStatus,
     };
   }
 

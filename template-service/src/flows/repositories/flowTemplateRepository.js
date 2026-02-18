@@ -602,6 +602,52 @@ class FlowTemplateRepository {
     return formatTemplateRow(rows[0]);
   }
 
+  static async listTemplatesForStatusSync({ tenant = null, limit = 100, offset = 0 } = {}) {
+    const conditions = [
+      'ft.deleted_at IS NULL',
+      'ft.meta_flow_id IS NOT NULL',
+      "TRIM(ft.meta_flow_id) <> ''",
+    ];
+    const values = [];
+
+    if (tenant) {
+      conditions.push('ft.organization_id = ?');
+      conditions.push('ft.meta_business_account_id = ?');
+      conditions.push('ft.meta_app_id = ?');
+      values.push(tenant.organizationId, tenant.metaBusinessAccountId, tenant.metaAppId);
+    }
+
+    const whereClause = conditions.join(' AND ');
+    const safeLimit = Math.max(Number.parseInt(limit, 10) || 100, 1);
+    const safeOffset = Math.max(Number.parseInt(offset, 10) || 0, 0);
+
+    const [rows] = await pool.execute(
+      `
+      SELECT
+        ft.uuid,
+        ft.organization_id,
+        ft.meta_business_account_id,
+        ft.meta_app_id,
+        ft.meta_flow_id,
+        ft.status
+      FROM flow_templates ft
+      WHERE ${whereClause}
+      ORDER BY ft.id ASC
+      LIMIT ${safeLimit} OFFSET ${safeOffset}
+      `,
+      values
+    );
+
+    return rows.map((row) => ({
+      uuid: row.uuid,
+      organizationId: row.organization_id,
+      metaBusinessAccountId: row.meta_business_account_id,
+      metaAppId: row.meta_app_id,
+      metaFlowId: row.meta_flow_id,
+      status: row.status,
+    }));
+  }
+
   static async getVersionsByTemplateId(templateId) {
     const [rows] = await pool.execute(
       `
@@ -811,6 +857,88 @@ class FlowTemplateRepository {
       `,
       [
         deletedBy,
+        templateUuid,
+        tenant.organizationId,
+        tenant.metaBusinessAccountId,
+        tenant.metaAppId,
+      ]
+    );
+
+    return result.affectedRows > 0;
+  }
+
+  static async deprecateTemplate(tenant, templateUuid, updatedBy = null) {
+    return this.runInTransaction(async (connection) => {
+      const [templateRows] = await connection.execute(
+        `
+        SELECT id
+        FROM flow_templates
+        WHERE uuid = ?
+          AND organization_id = ?
+          AND meta_business_account_id = ?
+          AND meta_app_id = ?
+          AND deleted_at IS NULL
+        LIMIT 1
+        FOR UPDATE
+        `,
+        [
+          templateUuid,
+          tenant.organizationId,
+          tenant.metaBusinessAccountId,
+          tenant.metaAppId,
+        ]
+      );
+
+      if (templateRows.length === 0) {
+        return false;
+      }
+
+      const templateId = Number(templateRows[0].id);
+
+      await connection.execute(
+        `
+        UPDATE flow_versions
+        SET status = 'ARCHIVED',
+            updated_at = CURRENT_TIMESTAMP
+        WHERE flow_template_id = ?
+          AND status = 'PUBLISHED'
+        `,
+        [templateId]
+      );
+
+      const [updateResult] = await connection.execute(
+        `
+        UPDATE flow_templates
+        SET status = 'DEPRECATED',
+            current_published_version_id = NULL,
+            updated_by = ?,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+          AND deleted_at IS NULL
+        `,
+        [updatedBy, templateId]
+      );
+
+      return updateResult.affectedRows > 0;
+    });
+  }
+
+  static async updateTemplateStatus(tenant, templateUuid, status, updatedBy = null) {
+    const [result] = await pool.execute(
+      `
+      UPDATE flow_templates
+      SET status = ?,
+          updated_by = ?,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE uuid = ?
+        AND organization_id = ?
+        AND meta_business_account_id = ?
+        AND meta_app_id = ?
+        AND deleted_at IS NULL
+      `,
+      [
+        status,
+        updatedBy,
         templateUuid,
         tenant.organizationId,
         tenant.metaBusinessAccountId,

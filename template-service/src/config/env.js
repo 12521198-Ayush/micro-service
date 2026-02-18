@@ -54,6 +54,10 @@ const env = {
     process.env.WEBHOOK_DISPATCH_BATCH_SIZE,
     50
   ),
+  flowStatusSyncBatchSize: parseInteger(
+    process.env.FLOW_STATUS_SYNC_BATCH_SIZE,
+    100
+  ),
   templateMediaMaxBytes: parseInteger(
     process.env.TEMPLATE_MEDIA_MAX_BYTES,
     25 * 1024 * 1024

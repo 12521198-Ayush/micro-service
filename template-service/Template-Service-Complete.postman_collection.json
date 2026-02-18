@@ -30,7 +30,7 @@
     },
     {
       "key": "meta_business_account_id",
-      "value": "1846008296268872"
+      "value": "1468289684238203"
     },
     {
       "key": "meta_app_id",
@@ -42,7 +42,7 @@
     },
     {
       "key": "sample_to_phone",
-      "value": "+14155550123"
+      "value": "+918800281734"
     },
     {
       "key": "template_uuid_standard",
@@ -1130,6 +1130,90 @@
           ]
         },
         {
+          "name": "Retire Flow (Published -> Deprecate, Else Delete)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "x-organization-id",
+                "value": "{{organization_id}}"
+              },
+              {
+                "key": "x-meta-business-account-id",
+                "value": "{{meta_business_account_id}}"
+              },
+              {
+                "key": "x-meta-app-id",
+                "value": "{{meta_app_id}}"
+              }
+            ],
+            "url": "{{base_url}}/flows/{{flow_id}}/retire"
+          }
+        },
+        {
+          "name": "Sync Flow Status (Single)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "x-organization-id",
+                "value": "{{organization_id}}"
+              },
+              {
+                "key": "x-meta-business-account-id",
+                "value": "{{meta_business_account_id}}"
+              },
+              {
+                "key": "x-meta-app-id",
+                "value": "{{meta_app_id}}"
+              }
+            ],
+            "url": "{{base_url}}/flows/{{flow_id}}/sync-status"
+          }
+        },
+        {
+          "name": "Sync Flow Statuses (Tenant Batch)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "x-organization-id",
+                "value": "{{organization_id}}"
+              },
+              {
+                "key": "x-meta-business-account-id",
+                "value": "{{meta_business_account_id}}"
+              },
+              {
+                "key": "x-meta-app-id",
+                "value": "{{meta_app_id}}"
+              }
+            ],
+            "url": "{{base_url}}/flows/sync-status?limit=100&offset=0"
+          }
+        },
+        {
+          "name": "Sync + Reconcile Flow Inventory (Destructive)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "x-organization-id",
+                "value": "{{organization_id}}"
+              },
+              {
+                "key": "x-meta-business-account-id",
+                "value": "{{meta_business_account_id}}"
+              },
+              {
+                "key": "x-meta-app-id",
+                "value": "{{meta_app_id}}"
+              }
+            ],
+            "url": "{{base_url}}/flows/sync-status?limit=100&offset=0&reconcile=true"
+          }
+        },
+        {
           "name": "Clone Flow",
           "request": {
             "method": "POST",
@@ -1312,6 +1396,47 @@
               }
             },
             "url": "{{base_url}}/webhooks/flows"
+          }
+        },
+        {
+          "name": "Test Receiver - Capture Event",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"eventType\": \"template.created\",\n  \"eventKey\": \"template.created:test\",\n  \"data\": {\n    \"templateId\": \"demo_template_001\",\n    \"name\": \"Demo Template\",\n    \"status\": \"PENDING\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{base_url}}/webhooks/testing/receiver"
+          }
+        },
+        {
+          "name": "Test Receiver - List Captured Events",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/webhooks/testing/events?limit=20"
+          }
+        },
+        {
+          "name": "Test Receiver - Clear Captured Events",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": "{{base_url}}/webhooks/testing/events"
           }
         }
       ]
