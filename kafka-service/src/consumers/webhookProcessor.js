@@ -1,11 +1,11 @@
 const { consumer, TOPICS, produceMessage } = require('../config/kafka');
 const logger = require('../utils/logger');
 const config = require('../config');
-const { Pool } = require('pg');
+const { MySQLPool } = require('../config/database');
 
 class WebhookProcessor {
   constructor() {
-    this.pool = new Pool(config.database);
+    this.pool = new MySQLPool(config.database);
   }
 
   async start() {
@@ -363,12 +363,11 @@ class WebhookProcessor {
   async saveIncomingMessage(data) {
     try {
       const query = `
-        INSERT INTO incoming_messages (
+        INSERT IGNORE INTO incoming_messages (
           whatsapp_message_id, waba_id, phone_number_id, from_number,
           contact_name, message_type, content, received_at,
           context_message_id, context_from
         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-        ON CONFLICT (whatsapp_message_id) DO NOTHING
       `;
       
       await this.pool.query(query, [

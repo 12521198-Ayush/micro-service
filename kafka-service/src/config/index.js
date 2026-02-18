@@ -69,14 +69,14 @@ module.exports = {
     maxQueueSize: 10000
   },
   
-  // Database
+  // Database (MySQL)
   database: {
-    host: process.env.DB_HOST || 'localhost',
-    port: process.env.DB_PORT || 5432,
-    database: process.env.DB_NAME || 'whatsapp_platform',
-    user: process.env.DB_USER || 'postgres',
-    password: process.env.DB_PASSWORD || 'password',
-    max: 20
+    host: process.env.DB_HOST || '127.0.0.1',
+    port: parseInt(process.env.DB_PORT) || 3308,
+    database: process.env.DB_NAME || 'kafka_service',
+    user: process.env.DB_USER || 'root',
+    password: process.env.DB_PASSWORD || '',
+    connectionLimit: 20
   },
   
   // Redis

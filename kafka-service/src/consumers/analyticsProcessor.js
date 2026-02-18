@@ -1,11 +1,11 @@
 const { consumer, TOPICS, kafka } = require('../config/kafka');
 const logger = require('../utils/logger');
 const config = require('../config');
-const { Pool } = require('pg');
+const { MySQLPool } = require('../config/database');
 
 class AnalyticsProcessor {
   constructor() {
-    this.pool = new Pool(config.database);
+    this.pool = new MySQLPool(config.database);
     this.analyticsBuffer = new Map();
     this.flushInterval = 10000; // Flush every 10 seconds
   }
@@ -106,20 +106,25 @@ class AnalyticsProcessor {
       INSERT INTO campaign_analytics (
         campaign_id, sent_count, delivered_count, read_count, 
         failed_count, clicked_count, replied_count, updated_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
-      ON CONFLICT (campaign_id) 
-      DO UPDATE SET 
-        sent_count = campaign_analytics.sent_count + $2,
-        delivered_count = campaign_analytics.delivered_count + $3,
-        read_count = campaign_analytics.read_count + $4,
-        failed_count = campaign_analytics.failed_count + $5,
-        clicked_count = campaign_analytics.clicked_count + $6,
-        replied_count = campaign_analytics.replied_count + $7,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, NOW())
+      ON DUPLICATE KEY UPDATE 
+        sent_count = sent_count + ?,
+        delivered_count = delivered_count + ?,
+        read_count = read_count + ?,
+        failed_count = failed_count + ?,
+        clicked_count = clicked_count + ?,
+        replied_count = replied_count + ?,
         updated_at = NOW()
     `;
 
     await this.pool.query(query, [
       campaignId,
+      analytics.sent,
+      analytics.delivered,
+      analytics.read,
+      analytics.failed,
+      analytics.clicked,
+      analytics.replied,
       analytics.sent,
       analytics.delivered,
       analytics.read,
@@ -151,13 +156,10 @@ class AnalyticsProcessor {
     const query = `
       SELECT 
         DATE(created_at) as date,
-        COUNT(*) FILTER (WHERE status = 'sent') as sent,
-        COUNT(*) FILTER (WHERE delivery_status = 'delivered') as delivered,
-        COUNT(*) FILTER (WHERE delivery_status = 'read') as read,
-        COUNT(*) FILTER (WHERE status = 'failed') as failed
-      FROM messages
-      WHERE campaign_id = $1
-      GROUP BY DATE(created_at)
+        SUM(CASE WHEN status = 'sent' THEN 1 ELSE 0 END) as sent,
+        SUM(CASE WHEN delivery_status = 'delivered' THEN 1 ELSE 0 END) as delivered,
+        SUM(CASE WHEN delivery_status = 'read' THEN 1 ELSE 0 END) as read_count,
+        SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed
       ORDER BY date DESC
     `;
 
@@ -168,14 +170,12 @@ class AnalyticsProcessor {
   async generateHourlyReport(campaignId, date) {
     const query = `
       SELECT 
-        EXTRACT(HOUR FROM created_at) as hour,
-        COUNT(*) FILTER (WHERE status = 'sent') as sent,
-        COUNT(*) FILTER (WHERE delivery_status = 'delivered') as delivered,
-        COUNT(*) FILTER (WHERE delivery_status = 'read') as read,
-        COUNT(*) FILTER (WHERE status = 'failed') as failed
-      FROM messages
-      WHERE campaign_id = $1 AND DATE(created_at) = $2
-      GROUP BY EXTRACT(HOUR FROM created_at)
+        HOUR(created_at) as hour,
+        SUM(CASE WHEN status = 'sent' THEN 1 ELSE 0 END) as sent,
+        SUM(CASE WHEN delivery_status = 'delivered' THEN 1 ELSE 0 END) as delivered,
+        SUM(CASE WHEN delivery_status = 'read' THEN 1 ELSE 0 END) as read_count,
+        SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed
+      GROUP BY HOUR(created_at)
       ORDER BY hour
     `;
 
@@ -197,19 +197,19 @@ class AnalyticsProcessor {
         ca.clicked_count,
         ca.replied_count,
         CASE WHEN ca.sent_count > 0 
-          THEN ROUND((ca.delivered_count::numeric / ca.sent_count) * 100, 2) 
+          THEN ROUND((ca.delivered_count / ca.sent_count) * 100, 2) 
           ELSE 0 
         END as delivery_rate,
         CASE WHEN ca.delivered_count > 0 
-          THEN ROUND((ca.read_count::numeric / ca.delivered_count) * 100, 2) 
+          THEN ROUND((ca.read_count / ca.delivered_count) * 100, 2) 
           ELSE 0 
         END as read_rate,
         CASE WHEN ca.read_count > 0 
-          THEN ROUND((ca.clicked_count::numeric / ca.read_count) * 100, 2) 
+          THEN ROUND((ca.clicked_count / ca.read_count) * 100, 2) 
           ELSE 0 
         END as click_rate,
         CASE WHEN ca.read_count > 0 
-          THEN ROUND((ca.replied_count::numeric / ca.read_count) * 100, 2) 
+          THEN ROUND((ca.replied_count / ca.read_count) * 100, 2) 
           ELSE 0 
         END as reply_rate
       FROM campaigns c
@@ -226,10 +226,10 @@ class AnalyticsProcessor {
       SELECT 
         DATE(m.created_at) as date,
         COUNT(*) as total_messages,
-        COUNT(*) FILTER (WHERE m.status = 'sent') as sent,
-        COUNT(*) FILTER (WHERE m.delivery_status = 'delivered') as delivered,
-        COUNT(*) FILTER (WHERE m.delivery_status = 'read') as read,
-        COUNT(*) FILTER (WHERE m.status = 'failed') as failed,
+        SUM(CASE WHEN m.status = 'sent' THEN 1 ELSE 0 END) as sent,
+        SUM(CASE WHEN m.delivery_status = 'delivered' THEN 1 ELSE 0 END) as delivered,
+        SUM(CASE WHEN m.delivery_status = 'read' THEN 1 ELSE 0 END) as read_count,
+        SUM(CASE WHEN m.status = 'failed' THEN 1 ELSE 0 END) as failed,
         COUNT(DISTINCT m.campaign_id) as campaigns
       FROM messages m
       JOIN campaigns c ON m.campaign_id = c.id

@@ -1,12 +1,12 @@
 const cron = require('node-cron');
-const { Pool } = require('pg');
+const { MySQLPool } = require('../config/database');
 const { produceMessage, TOPICS } = require('../config/kafka');
 const logger = require('../utils/logger');
 const config = require('../config');
 
 class CampaignScheduler {
   constructor() {
-    this.pool = new Pool(config.database);
+    this.pool = new MySQLPool(config.database);
     this.isRunning = false;
   }
 
@@ -37,13 +37,14 @@ class CampaignScheduler {
         c.id, c.name, c.user_id, c.organization_id,
         c.template_id, c.group_id, c.scheduled_at,
         t.name as template_name, t.language as template_language,
-        w.phone_number_id, w.access_token
+        p.phone_number_id, w.access_token
       FROM campaigns c
       JOIN templates t ON c.template_id = t.id
       JOIN waba_accounts w ON c.organization_id = w.organization_id
+      LEFT JOIN phone_numbers p ON w.waba_id = p.waba_id
       WHERE c.status = 'scheduled' 
         AND c.scheduled_at <= NOW()
-        AND c.scheduled_at > NOW() - INTERVAL '5 minutes'
+        AND c.scheduled_at > NOW() - INTERVAL 5 MINUTE
       FOR UPDATE SKIP LOCKED
     `;
 

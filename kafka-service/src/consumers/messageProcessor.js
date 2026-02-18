@@ -3,11 +3,11 @@ const whatsappApi = require('../services/whatsappApi');
 const rateLimiter = require('../utils/rateLimiter');
 const logger = require('../utils/logger');
 const config = require('../config');
-const { Pool } = require('pg');
+const { MySQLPool } = require('../config/database');
 
 class MessageProcessor {
   constructor() {
-    this.pool = new Pool(config.database);
+    this.pool = new MySQLPool(config.database);
     this.processingQueue = [];
     this.isProcessing = false;
   }
