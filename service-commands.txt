@@ -1,0 +1,255 @@
+===============================================================
+   MICROSERVICES - RESTART & STOP COMMANDS REFERENCE
+===============================================================
+
+Services & Ports:
+  - user-service         → Port 3000
+  - contact-service      → Port 3002
+  - campaign-service     → Port 3003
+  - template-service     → Port 3004
+  - team-service         → Port 3005
+  - whatsapp-service     → Port 3006
+  - kafka-service        → Port 3007
+  - automation-service   → Port 3008
+  - frontend             → Port 3001
+
+===============================================================
+  USING PM2 (Recommended - via ecosystem.config.js)
+===============================================================
+
+--- STOP COMMANDS ---
+
+# Stop all services
+pm2 stop ecosystem.config.js
+
+# Stop a single service
+pm2 stop user-service
+pm2 stop contact-service
+pm2 stop campaign-service
+pm2 stop template-service
+pm2 stop team-service
+pm2 stop whatsapp-service
+pm2 stop kafka-service
+pm2 stop automation-service
+pm2 stop frontend
+
+# Kill all PM2 processes (force stop everything)
+pm2 kill
+
+# Delete all services from PM2 (stop + remove from list)
+pm2 delete all
+
+# Delete a specific service from PM2
+pm2 delete user-service
+
+
+--- RESTART COMMANDS ---
+
+# Restart all services
+pm2 restart ecosystem.config.js
+
+# Restart a single service
+pm2 restart user-service
+pm2 restart contact-service
+pm2 restart campaign-service
+pm2 restart template-service
+pm2 restart team-service
+pm2 restart whatsapp-service
+pm2 restart kafka-service
+pm2 restart automation-service
+pm2 restart frontend
+
+# Reload all services (zero-downtime restart)
+pm2 reload ecosystem.config.js
+
+# Reload a single service
+pm2 reload user-service
+
+
+--- START COMMANDS ---
+
+# Start all services using ecosystem file
+pm2 start ecosystem.config.js
+
+# Start a single service
+pm2 start ecosystem.config.js --only user-service
+pm2 start ecosystem.config.js --only contact-service
+pm2 start ecosystem.config.js --only campaign-service
+pm2 start ecosystem.config.js --only template-service
+pm2 start ecosystem.config.js --only team-service
+pm2 start ecosystem.config.js --only whatsapp-service
+pm2 start ecosystem.config.js --only kafka-service
+pm2 start ecosystem.config.js --only automation-service
+pm2 start ecosystem.config.js --only frontend
+
+
+--- STATUS & MONITORING ---
+
+# Check status of all services
+pm2 status
+
+# Monitor all services (live dashboard)
+pm2 monit
+
+# View logs for all services
+pm2 logs
+
+# View logs for a specific service
+pm2 logs user-service
+pm2 logs contact-service
+pm2 logs template-service
+
+# View last 100 lines of logs for a service
+pm2 logs user-service --lines 100
+
+# Flush all logs
+pm2 flush
+
+
+===============================================================
+  USING SHELL SCRIPTS (Alternative)
+===============================================================
+
+# Start all services
+./start.sh
+
+# Stop all services
+./stop.sh
+
+# Check status of all services
+./status.sh
+
+
+===============================================================
+  USING DOCKER (via docker-compose.yml)
+===============================================================
+
+--- STOP COMMANDS ---
+
+# Stop all containers
+docker-compose down
+
+# Stop a specific container
+docker-compose stop user-service
+docker-compose stop contact-service
+docker-compose stop campaign-service
+docker-compose stop template-service
+docker-compose stop team-service
+docker-compose stop whatsapp-service
+docker-compose stop kafka-service
+docker-compose stop automation-service
+docker-compose stop frontend
+
+# Stop and remove volumes (caution: deletes data)
+docker-compose down -v
+
+
+--- RESTART COMMANDS ---
+
+# Restart all containers
+docker-compose restart
+
+# Restart a specific container
+docker-compose restart user-service
+docker-compose restart contact-service
+docker-compose restart campaign-service
+docker-compose restart template-service
+docker-compose restart team-service
+docker-compose restart whatsapp-service
+docker-compose restart kafka-service
+docker-compose restart automation-service
+docker-compose restart frontend
+
+# Rebuild and restart all containers
+docker-compose up -d --build
+
+# Rebuild and restart a specific container
+docker-compose up -d --build user-service
+
+
+===============================================================
+  MANUAL PROCESS MANAGEMENT (Direct Node.js)
+===============================================================
+
+--- STOP ---
+
+# Find and kill a service by port
+lsof -ti:3000 | xargs kill -9    # user-service
+lsof -ti:3001 | xargs kill -9    # frontend
+lsof -ti:3002 | xargs kill -9    # contact-service
+lsof -ti:3003 | xargs kill -9    # campaign-service
+lsof -ti:3004 | xargs kill -9    # template-service
+lsof -ti:3005 | xargs kill -9    # team-service
+lsof -ti:3006 | xargs kill -9    # whatsapp-service
+lsof -ti:3007 | xargs kill -9    # kafka-service
+lsof -ti:3008 | xargs kill -9    # automation-service
+
+# Kill all node processes (caution: kills ALL node processes)
+killall node
+
+# Find node processes
+ps aux | grep "node src/app.js"
+
+
+--- RESTART (Manual) ---
+
+# Stop then start a service manually
+cd /var/www/html/microservices-nyife/micro-service/user-service && node src/app.js &
+cd /var/www/html/microservices-nyife/micro-service/contact-service && node src/app.js &
+cd /var/www/html/microservices-nyife/micro-service/campaign-service && node src/app.js &
+cd /var/www/html/microservices-nyife/micro-service/template-service && node src/app.js &
+cd /var/www/html/microservices-nyife/micro-service/team-services && node src/app.js &
+cd /var/www/html/microservices-nyife/micro-service/whatsapp-service && node src/app.js &
+cd /var/www/html/microservices-nyife/micro-service/kafka-service && node src/app.js &
+cd /var/www/html/microservices-nyife/micro-service/automation-service && node src/app.js &
+
+
+===============================================================
+  REDIS COMMANDS
+===============================================================
+
+# Start Redis
+redis-server --daemonize yes
+
+# Stop Redis
+redis-cli shutdown
+
+# Check if Redis is running
+redis-cli ping
+
+# Restart Redis
+redis-cli shutdown && redis-server --daemonize yes
+
+
+===============================================================
+  NGINX COMMANDS
+===============================================================
+
+# Restart Nginx
+sudo systemctl restart nginx
+
+# Stop Nginx
+sudo systemctl stop nginx
+
+# Start Nginx
+sudo systemctl start nginx
+
+# Reload Nginx config (no downtime)
+sudo nginx -s reload
+
+# Test Nginx config
+sudo nginx -t
+
+
+===============================================================
+  QUICK REFERENCE - MOST COMMON COMMANDS
+===============================================================
+
+  pm2 restart ecosystem.config.js     → Restart all services
+  pm2 stop ecosystem.config.js        → Stop all services
+  pm2 restart <service-name>          → Restart one service
+  pm2 stop <service-name>             → Stop one service
+  pm2 status                          → Check all services
+  pm2 logs <service-name>             → View service logs
+
+===============================================================
