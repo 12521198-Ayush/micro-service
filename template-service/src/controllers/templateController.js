@@ -80,14 +80,14 @@ const normalizeListFilters = (raw = {}) => {
     templateType: raw.templateType
       ? String(raw.templateType).toUpperCase()
       : raw.type
-      ? String(raw.type).toUpperCase()
-      : null,
+        ? String(raw.type).toUpperCase()
+        : null,
     language: raw.language ? String(raw.language) : null,
     search: raw.search
       ? String(raw.search)
       : raw.name
-      ? String(raw.name)
-      : null,
+        ? String(raw.name)
+        : null,
     limit: Math.min(
       Math.max(Number.parseInt(raw.limit, 10) || DEFAULT_PAGE_LIMIT, 1),
       MAX_PAGE_LIMIT
@@ -609,6 +609,9 @@ export const syncTemplates = async (req, res) => {
 
   let after = null;
   let hasNextPage = true;
+
+  console.log("userId : ", userId);
+  console.log("tenant : ", tenant);
 
   while (hasNextPage) {
     const response = await metaTemplateApi.listTemplates(
