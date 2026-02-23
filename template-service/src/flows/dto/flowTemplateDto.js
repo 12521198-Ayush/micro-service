@@ -1,6 +1,7 @@
 export const toFlowTemplateListItemDto = (template) => {
   return {
     id: template.uuid,
+    flowId: template.metaFlowId,
     name: template.name,
     templateKey: template.templateKey,
     category: template.category,
@@ -89,6 +90,7 @@ export const toFlowVersionDto = (version) => {
 export const toFlowTemplateDetailDto = ({ template, version, versions = [] }) => {
   return {
     id: template.uuid,
+    flowId: template.metaFlowId,
     name: template.name,
     templateKey: template.templateKey,
     description: template.description,

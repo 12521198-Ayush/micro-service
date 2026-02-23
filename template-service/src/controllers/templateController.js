@@ -532,30 +532,34 @@ export const deleteTemplate = async (req, res) => {
   }
 
   let metaResponse = null;
+  let deleteMode = 'id';
 
-  if (template.metaTemplateId) {
-    try {
-      metaResponse = await metaTemplateApi.deleteTemplateByMetaId(
-        template.metaTemplateId
-      );
-    } catch (error) {
-      if (error.statusCode !== 404) {
-        throw error;
+  if (!template.metaTemplateId) {
+    throw new AppError(409, 'Template is missing Meta template id and cannot be deleted', {
+      code: 'META_TEMPLATE_ID_MISSING',
+    });
+  }
+
+  try {
+    metaResponse = await metaTemplateApi.deleteTemplateByMetaId(
+      template.metaTemplateId
+    );
+  } catch (metaDeleteByIdError) {
+    deleteMode = 'name';
+    metaResponse = await metaTemplateApi.deleteTemplateByName(
+      tenant.metaBusinessAccountId,
+      {
+        name: template.name,
+        language: template.language,
+        metaTemplateId: template.metaTemplateId,
       }
-    }
+    );
   }
 
   if (!metaResponse) {
-    try {
-      metaResponse = await metaTemplateApi.deleteTemplateByName(
-        tenant.metaBusinessAccountId,
-        template.name
-      );
-    } catch (error) {
-      if (error.statusCode !== 404) {
-        throw error;
-      }
-    }
+    throw new AppError(502, 'Meta template deletion did not return a response', {
+      code: 'META_TEMPLATE_DELETE_FAILED',
+    });
   }
 
   const deleted = await TemplateModel.softDeleteTemplate(uuid, tenant, userId);
@@ -585,6 +589,7 @@ export const deleteTemplate = async (req, res) => {
     message: 'Template deleted successfully',
     data: {
       uuid,
+      deleteMode,
       meta: metaResponse,
     },
   });

@@ -21,6 +21,7 @@ const formatTemplateRow = (row) => {
     organizationId: row.organization_id,
     metaBusinessAccountId: row.meta_business_account_id,
     metaAppId: row.meta_app_id,
+    metaFlowId: row.meta_flow_id,
     templateKey: row.template_key,
     name: row.name,
     description: row.description,
@@ -182,6 +183,7 @@ class FlowTemplateRepository {
           organization_id,
           meta_business_account_id,
           meta_app_id,
+          meta_flow_id,
           template_key,
           name,
           description,
@@ -189,13 +191,14 @@ class FlowTemplateRepository {
           status,
           created_by,
           updated_by
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'DRAFT', ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'DRAFT', ?, ?)
         `,
         [
           templateUuid,
           tenant.organizationId,
           tenant.metaBusinessAccountId,
           tenant.metaAppId,
+          payload.flowId,
           payload.templateKey,
           payload.name,
           payload.description,
@@ -286,6 +289,7 @@ class FlowTemplateRepository {
             template_key = ?,
             description = ?,
             category = ?,
+            meta_flow_id = COALESCE(?, meta_flow_id),
             current_draft_version_id = ?,
             status = 'DRAFT',
             updated_by = ?,
@@ -297,6 +301,7 @@ class FlowTemplateRepository {
           payload.templateKey,
           payload.description,
           payload.category,
+          payload.flowId,
           version.id,
           userId || null,
           templateId,
@@ -480,10 +485,10 @@ class FlowTemplateRepository {
 
   static async listTemplatesByTenant(tenant, filters = {}) {
     const conditions = [
-      'organization_id = ?',
-      'meta_business_account_id = ?',
-      'meta_app_id = ?',
-      'deleted_at IS NULL',
+      'ft.organization_id = ?',
+      'ft.meta_business_account_id = ?',
+      'ft.meta_app_id = ?',
+      'ft.deleted_at IS NULL',
     ];
     const values = [
       tenant.organizationId,
@@ -492,17 +497,17 @@ class FlowTemplateRepository {
     ];
 
     if (filters.status) {
-      conditions.push('status = ?');
+      conditions.push('ft.status = ?');
       values.push(filters.status);
     }
 
     if (filters.category) {
-      conditions.push('category = ?');
+      conditions.push('ft.category = ?');
       values.push(filters.category);
     }
 
     if (filters.search) {
-      conditions.push('(name LIKE ? OR template_key LIKE ?)');
+      conditions.push('(ft.name LIKE ? OR ft.template_key LIKE ?)');
       values.push(`%${filters.search}%`, `%${filters.search}%`);
     }
 
@@ -529,7 +534,7 @@ class FlowTemplateRepository {
     const [countRows] = await pool.execute(
       `
       SELECT COUNT(*) AS total
-      FROM flow_templates
+      FROM flow_templates ft
       WHERE ${whereClause}
       `,
       values
@@ -595,6 +600,52 @@ class FlowTemplateRepository {
     );
 
     return formatTemplateRow(rows[0]);
+  }
+
+  static async listTemplatesForStatusSync({ tenant = null, limit = 100, offset = 0 } = {}) {
+    const conditions = [
+      'ft.deleted_at IS NULL',
+      'ft.meta_flow_id IS NOT NULL',
+      "TRIM(ft.meta_flow_id) <> ''",
+    ];
+    const values = [];
+
+    if (tenant) {
+      conditions.push('ft.organization_id = ?');
+      conditions.push('ft.meta_business_account_id = ?');
+      conditions.push('ft.meta_app_id = ?');
+      values.push(tenant.organizationId, tenant.metaBusinessAccountId, tenant.metaAppId);
+    }
+
+    const whereClause = conditions.join(' AND ');
+    const safeLimit = Math.max(Number.parseInt(limit, 10) || 100, 1);
+    const safeOffset = Math.max(Number.parseInt(offset, 10) || 0, 0);
+
+    const [rows] = await pool.execute(
+      `
+      SELECT
+        ft.uuid,
+        ft.organization_id,
+        ft.meta_business_account_id,
+        ft.meta_app_id,
+        ft.meta_flow_id,
+        ft.status
+      FROM flow_templates ft
+      WHERE ${whereClause}
+      ORDER BY ft.id ASC
+      LIMIT ${safeLimit} OFFSET ${safeOffset}
+      `,
+      values
+    );
+
+    return rows.map((row) => ({
+      uuid: row.uuid,
+      organizationId: row.organization_id,
+      metaBusinessAccountId: row.meta_business_account_id,
+      metaAppId: row.meta_app_id,
+      metaFlowId: row.meta_flow_id,
+      status: row.status,
+    }));
   }
 
   static async getVersionsByTemplateId(templateId) {
@@ -816,6 +867,88 @@ class FlowTemplateRepository {
     return result.affectedRows > 0;
   }
 
+  static async deprecateTemplate(tenant, templateUuid, updatedBy = null) {
+    return this.runInTransaction(async (connection) => {
+      const [templateRows] = await connection.execute(
+        `
+        SELECT id
+        FROM flow_templates
+        WHERE uuid = ?
+          AND organization_id = ?
+          AND meta_business_account_id = ?
+          AND meta_app_id = ?
+          AND deleted_at IS NULL
+        LIMIT 1
+        FOR UPDATE
+        `,
+        [
+          templateUuid,
+          tenant.organizationId,
+          tenant.metaBusinessAccountId,
+          tenant.metaAppId,
+        ]
+      );
+
+      if (templateRows.length === 0) {
+        return false;
+      }
+
+      const templateId = Number(templateRows[0].id);
+
+      await connection.execute(
+        `
+        UPDATE flow_versions
+        SET status = 'ARCHIVED',
+            updated_at = CURRENT_TIMESTAMP
+        WHERE flow_template_id = ?
+          AND status = 'PUBLISHED'
+        `,
+        [templateId]
+      );
+
+      const [updateResult] = await connection.execute(
+        `
+        UPDATE flow_templates
+        SET status = 'DEPRECATED',
+            current_published_version_id = NULL,
+            updated_by = ?,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+          AND deleted_at IS NULL
+        `,
+        [updatedBy, templateId]
+      );
+
+      return updateResult.affectedRows > 0;
+    });
+  }
+
+  static async updateTemplateStatus(tenant, templateUuid, status, updatedBy = null) {
+    const [result] = await pool.execute(
+      `
+      UPDATE flow_templates
+      SET status = ?,
+          updated_by = ?,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE uuid = ?
+        AND organization_id = ?
+        AND meta_business_account_id = ?
+        AND meta_app_id = ?
+        AND deleted_at IS NULL
+      `,
+      [
+        status,
+        updatedBy,
+        templateUuid,
+        tenant.organizationId,
+        tenant.metaBusinessAccountId,
+        tenant.metaAppId,
+      ]
+    );
+
+    return result.affectedRows > 0;
+  }
+
   static async cloneTemplateFromVersion({
     tenant,
     userId,
@@ -827,6 +960,7 @@ class FlowTemplateRepository {
     const payload = {
       templateKey: cloneTemplateKey,
       name: cloneName,
+      flowId: sourceTemplate.metaFlowId,
       description: sourceTemplate.description,
       category: sourceTemplate.category,
       webhookMapping: sourceVersionGraph.webhookMapping,

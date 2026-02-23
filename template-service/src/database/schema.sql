@@ -7,3 +7,4 @@ SOURCE ./migrations/003_whatsapp_template_index_compat.sql;
 SOURCE ./migrations/004_template_tenant_hardening.sql;
 SOURCE ./migrations/005_template_send_and_webhook_engine.sql;
 SOURCE ./migrations/006_remove_template_send_gateway.sql;
+SOURCE ./migrations/007_expand_flow_template_status_enum.sql;

@@ -91,8 +91,14 @@ Base: `/flows`
 - `GET /`
 - `GET /:id`
 - `PUT /:id`
-- `DELETE /:id`
+- `DELETE /:id` (same retire lifecycle as `POST /:id/retire`)
 - `POST /:id/publish`
+- `POST /:id/retire` (if published -> deprecate; otherwise delete)
+- `POST /:id/sync-status` (sync one flow status from Meta)
+- `POST /sync-status` (sync tenant flow statuses from Meta, optional `limit`/`offset`)
+  - optional `reconcile=true`:
+  - deletes Meta-only extra flows from Meta
+  - soft-deletes local-only extra flows from DB
 - `POST /:id/clone`
 
 ## 4.4 Inbound webhooks
@@ -302,15 +308,18 @@ Each attempt is logged in `tenant_webhook_delivery_attempts`.
 ## 10.4 Flow usage (template type FLOW + flow engine)
 1. Business creates flow graph using `POST /flows` (screens/components/actions).
 2. Business publishes flow using `POST /flows/:id/publish`.
-3. Business creates WhatsApp template with `FLOW` button for interaction entry.
-4. User opens flow in WhatsApp and submits values.
-5. Submission enters `POST /webhooks/flows` (or `nfm_reply` route via `/webhooks/meta`).
-6. Service validates tenant + required variables + version ownership.
-7. Service stores `flow_submissions`.
-8. Service applies `webhook_mapping` to produce CRM-ready structure.
-9. Service enqueues `flow.submission.received` tenant webhook event.
-10. Dispatcher forwards signed payload with retry/idempotency headers.
-11. Customer receiver writes submission to CRM/ticket/order system.
+3. Business may retire flow using `POST /flows/:id/retire`.
+4. If flow status is `PUBLISHED`/`THROTTLED`/`BLOCKED`, service deprecates Meta flow and marks local flow `DEPRECATED`.
+5. If flow status is not `PUBLISHED`, service deletes Meta flow and soft-deletes local flow.
+6. Business creates WhatsApp template with `FLOW` button for interaction entry.
+7. User opens flow in WhatsApp and submits values.
+8. Submission enters `POST /webhooks/flows` (or `nfm_reply` route via `/webhooks/meta`).
+9. Service validates tenant + required variables + version ownership.
+10. Service stores `flow_submissions`.
+11. Service applies `webhook_mapping` to produce CRM-ready structure.
+12. Service enqueues `flow.submission.received` tenant webhook event.
+13. Dispatcher forwards signed payload with retry/idempotency headers.
+14. Customer receiver writes submission to CRM/ticket/order system.
 
 ## 10.5 Customer webhook receiver behavior (recommended)
 1. Verify source by IP allowlist (if enabled) + `X-Webhook-Signature`.
@@ -467,6 +476,11 @@ Approval state is externalized to Meta and synchronized by:
 - each update creates a new draft version
 - publish sets current published version
 - previous published version is archived
+- runtime status can be synced from Meta (`DRAFT`, `PUBLISHED`, `DEPRECATED`, `THROTTLED`, `BLOCKED`)
+- sync APIs:
+  - `POST /flows/:id/sync-status`
+  - `POST /flows/sync-status`
+- sync is manual/API-driven (no background scheduler)
 
 ## 15. Extensibility
 

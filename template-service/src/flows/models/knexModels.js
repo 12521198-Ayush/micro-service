@@ -5,6 +5,7 @@ export const createFlowTemplateModel = (knex) => {
     table.string('organization_id', 64).notNullable();
     table.string('meta_business_account_id', 64).notNullable();
     table.string('meta_app_id', 64).notNullable();
+    table.string('meta_flow_id', 64).nullable();
     table.string('template_key', 128).notNullable();
     table.string('name', 255).notNullable();
     table.text('description').nullable();
@@ -28,7 +29,10 @@ export const createFlowTemplateModel = (knex) => {
         'SURVEYS',
       ])
       .notNullable();
-    table.enu('status', ['DRAFT', 'PUBLISHED', 'ARCHIVED']).notNullable().defaultTo('DRAFT');
+    table
+      .enu('status', ['DRAFT', 'PUBLISHED', 'DEPRECATED', 'THROTTLED', 'BLOCKED', 'ARCHIVED'])
+      .notNullable()
+      .defaultTo('DRAFT');
     table.bigInteger('current_draft_version_id').unsigned().nullable();
     table.bigInteger('current_published_version_id').unsigned().nullable();
     table.bigInteger('created_by').unsigned().nullable();

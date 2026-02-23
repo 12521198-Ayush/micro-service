@@ -283,6 +283,10 @@ export const validateAndNormalizeFlowPayload = (
   const normalized = {
     name: toNullableString(payload.name, 255),
     templateKey: normalizeKey(payload.templateKey || payload.template_key || slugify(payload.name || '')),
+    flowId: toNullableString(
+      payload.flowId || payload.flow_id || payload.metaFlowId || payload.meta_flow_id,
+      64
+    ),
     description: toNullableString(payload.description, 1000),
     category: toNullableString(payload.category, 64)?.toUpperCase(),
     screens: Array.isArray(payload.screens)

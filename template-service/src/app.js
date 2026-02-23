@@ -7,6 +7,7 @@ import flowsRouter from './flows/routes/flows.js';
 import flowWebhooksRouter from './flows/routes/flowWebhooks.js';
 import metaWebhooksRouter from './routes/metaWebhooks.js';
 import webhookConfigRouter from './webhooks/routes/webhookConfigRoutes.js';
+import webhookTestRouter from './webhooks/routes/webhookTestRoutes.js';
 import requestContext from './middleware/requestContext.js';
 import notFoundHandler from './middleware/notFound.js';
 import errorHandler from './middleware/errorHandler.js';
@@ -47,6 +48,7 @@ app.use('/api/templates', templatesRouter);
 app.use('/flows', flowsRouter);
 app.use('/webhooks', flowWebhooksRouter);
 app.use('/webhooks', metaWebhooksRouter);
+app.use('/webhooks', webhookTestRouter);
 app.use('/api/webhooks', webhookConfigRouter);
 
 app.use(notFoundHandler);

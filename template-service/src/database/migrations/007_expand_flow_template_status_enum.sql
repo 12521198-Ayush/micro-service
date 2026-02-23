@@ -1,0 +1,9 @@
+ALTER TABLE flow_templates
+  MODIFY COLUMN status ENUM(
+    'DRAFT',
+    'PUBLISHED',
+    'DEPRECATED',
+    'THROTTLED',
+    'BLOCKED',
+    'ARCHIVED'
+  ) NOT NULL DEFAULT 'DRAFT';
