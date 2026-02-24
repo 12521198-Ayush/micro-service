@@ -9,10 +9,10 @@ class User {
     try {
       const query = 'INSERT INTO users (email, password, name) VALUES (?, ?, ?)';
       const [result] = await connection.execute(query, [email, passwordHash, name]);
-      
+
       // Invalidate cache
       await cache.delete(`user_email:${email}`);
-      
+
       return result.insertId;
     } finally {
       connection.release();
@@ -30,15 +30,15 @@ class User {
 
     const connection = await pool.getConnection();
     try {
-      const query = 'SELECT id, email, password, name, meta_business_account_id, user_balance, marketing_message_price, utility_message_price, auth_message_price FROM users WHERE email = ?';
+      const query = 'SELECT id, email, password, name, role, meta_business_account_id, user_balance, marketing_message_price, utility_message_price, auth_message_price FROM users WHERE email = ?';
       const [rows] = await connection.execute(query, [email]);
       const user = rows[0] || null;
-      
+
       // Cache the result
       if (user) {
         await cache.set(cacheKey, user, CACHE_TTL);
       }
-      
+
       return user;
     } finally {
       connection.release();
@@ -56,15 +56,15 @@ class User {
 
     const connection = await pool.getConnection();
     try {
-      const query = 'SELECT id, email, name, meta_business_account_id, user_balance, marketing_message_price, utility_message_price, auth_message_price FROM users WHERE id = ?';
+      const query = 'SELECT id, email, name, role, meta_business_account_id, user_balance, marketing_message_price, utility_message_price, auth_message_price FROM users WHERE id = ?';
       const [rows] = await connection.execute(query, [id]);
       const user = rows[0] || null;
-      
+
       // Cache the result
       if (user) {
         await cache.set(cacheKey, user, CACHE_TTL);
       }
-      
+
       return user;
     } finally {
       connection.release();
@@ -76,12 +76,12 @@ class User {
     try {
       const query = 'UPDATE users SET password = ? WHERE id = ?';
       const [result] = await connection.execute(query, [newPasswordHash, id]);
-      
+
       // Invalidate user cache
       if (result.affectedRows > 0) {
         await cache.delete(`user_id:${id}`);
       }
-      
+
       return result.affectedRows > 0;
     } finally {
       connection.release();
@@ -93,13 +93,13 @@ class User {
     try {
       const query = 'UPDATE users SET name = ?, email = ? WHERE id = ?';
       const [result] = await connection.execute(query, [name, email, id]);
-      
+
       // Invalidate user cache
       if (result.affectedRows > 0) {
         await cache.delete(`user_id:${id}`);
         await cache.delete(`user_email:${email}`);
       }
-      
+
       return result.affectedRows > 0;
     } finally {
       connection.release();
@@ -111,10 +111,10 @@ class User {
     try {
       // Get user before deletion to invalidate email cache
       const user = await this.findById(id);
-      
+
       const query = 'DELETE FROM users WHERE id = ?';
       const [result] = await connection.execute(query, [id]);
-      
+
       // Invalidate user cache
       if (result.affectedRows > 0) {
         await cache.delete(`user_id:${id}`);
@@ -122,7 +122,7 @@ class User {
           await cache.delete(`user_email:${user.email}`);
         }
       }
-      
+
       return result.affectedRows > 0;
     } finally {
       connection.release();
@@ -209,7 +209,7 @@ class User {
     try {
       const query = 'UPDATE users SET meta_business_account_id = ? WHERE id = ?';
       const [result] = await connection.execute(query, [metaBusinessAccountId, userId]);
-      
+
       // Invalidate user cache
       if (result.affectedRows > 0) {
         await cache.delete(`user_id:${userId}`);
@@ -219,7 +219,7 @@ class User {
           await cache.delete(`user_email:${user.email}`);
         }
       }
-      
+
       return result.affectedRows > 0;
     } finally {
       connection.release();
@@ -242,12 +242,12 @@ class User {
     try {
       const query = 'UPDATE users SET user_balance = ? WHERE id = ?';
       const [result] = await connection.execute(query, [newBalance, userId]);
-      
+
       // Invalidate user cache
       if (result.affectedRows > 0) {
         await cache.delete(`user_id:${userId}`);
       }
-      
+
       return result.affectedRows > 0;
     } finally {
       connection.release();
@@ -259,7 +259,7 @@ class User {
     try {
       const updates = [];
       const values = [];
-      
+
       if (prices.marketingMessagePrice !== undefined) {
         updates.push('marketing_message_price = ?');
         values.push(prices.marketingMessagePrice);
@@ -272,18 +272,18 @@ class User {
         updates.push('auth_message_price = ?');
         values.push(prices.authMessagePrice);
       }
-      
+
       if (updates.length === 0) return false;
-      
+
       values.push(userId);
       const query = `UPDATE users SET ${updates.join(', ')} WHERE id = ?`;
       const [result] = await connection.execute(query, values);
-      
+
       // Invalidate user cache
       if (result.affectedRows > 0) {
         await cache.delete(`user_id:${userId}`);
       }
-      
+
       return result.affectedRows > 0;
     } finally {
       connection.release();
