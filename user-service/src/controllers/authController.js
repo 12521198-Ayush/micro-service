@@ -134,13 +134,14 @@ export const login = async (req, res) => {
     console.log('✓ JWT token generated successfully');
     console.log('Token (first 20 chars):', token.substring(0, 20) + '...');
     console.log('✓ LOGIN SUCCESSFUL');
-    console.log('Response:', { id: user.id, email: user.email, name: user.name });
+    console.log('Response:', { id: user.id, email: user.email, name: user.name, role: user.role });
+    console.log("user : ", user);
     console.log('========== LOGIN END ==========\n');
 
     res.status(200).json({
       message: 'Login successful',
       token,
-      user: { id: user.id, email: user.email, name: user.name },
+      user: { id: user.id, email: user.email, name: user.name, role: user.role },
     });
   } catch (error) {
     console.error('❌ LOGIN ERROR');
@@ -316,7 +317,7 @@ export const forgotPassword = async (req, res) => {
     // Check reset attempts
     console.log('Checking reset attempts...');
     const attempts = await User.getResetAttempts(email);
-    
+
     if (attempts) {
       const lastAttemptTime = new Date(attempts.reset_attempts_reset_at);
       const now = new Date();
@@ -621,12 +622,12 @@ export const updateMetaBusinessAccountId = async (req, res) => {
     // Generate new token with updated metaBusinessAccountId
     console.log('Generating new JWT token with updated Meta Business Account ID...');
     const newToken = jwt.sign(
-      { 
-        id: req.user.id, 
-        email: req.user.email, 
-        metaBusinessAccountId: user.meta_business_account_id 
-      }, 
-      JWT_SECRET, 
+      {
+        id: req.user.id,
+        email: req.user.email,
+        metaBusinessAccountId: user.meta_business_account_id
+      },
+      JWT_SECRET,
       { expiresIn: JWT_EXPIRY }
     );
 
