@@ -76,7 +76,7 @@ const ChangePassword = () => {
       if (err.status === 401) {
         setError('Current password is incorrect')
       } else if (err.status === 403) {
-        signOut({ callbackUrl: '/login' })
+        setError('You do not have permission to perform this action')
       } else {
         setError(err.message || 'Failed to change password')
       }

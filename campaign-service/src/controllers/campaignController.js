@@ -11,9 +11,20 @@ const TEMPLATE_SERVICE_URL = process.env.TEMPLATE_SERVICE_URL || 'http://localho
 // @access  Private
 export const createCampaign = async (req, res) => {
   try {
+    console.log(req.body);
+    
     const { name, description, templateId, groupId, scheduledAt, status, metadata } = req.body;
     const userId = req.user.id || req.user.userId;
     const authToken = req.headers.authorization;
+
+    const tenantHeaders = {};
+    if (metadata?.wabaId || metadata?.waba_id) {
+      tenantHeaders['x-meta-business-account-id'] = metadata?.wabaId || metadata?.waba_id;
+    }
+    if (metadata?.phoneNumberId || metadata?.phone_number_id) {
+      tenantHeaders['x-meta-phone-number-id'] = metadata?.phoneNumberId || metadata?.phone_number_id;
+    }
+    
 
     // Fetch template name if templateId provided
     let templateName = null;
@@ -21,7 +32,7 @@ export const createCampaign = async (req, res) => {
       try {
         const tRes = await axios.get(
           `${TEMPLATE_SERVICE_URL}/api/templates/${templateId}`,
-          { headers: { Authorization: authToken } }
+          { headers: { Authorization: authToken, ...tenantHeaders } }
         );
         templateName = tRes.data?.data?.name || null;
       } catch (e) {
@@ -110,8 +121,8 @@ export const getCampaigns = async (req, res) => {
       data: campaigns
     };
 
-    // Cache for 5 minutes
-    await cache.set(cacheKey, responseData, 300);
+    // Cache for 30 seconds (short TTL since campaigns update in real-time)
+    await cache.set(cacheKey, responseData, 30);
 
     res.json(responseData);
   } catch (error) {
@@ -131,11 +142,11 @@ export const getCampaignById = async (req, res) => {
     const { id } = req.params;
     const userId = req.user.id || req.user.userId;
 
-    // Check cache first
+    // Check cache first (skip cache for running campaigns since they update frequently)
     const cacheKey = cacheKeys.campaign(userId, id);
     const cachedCampaign = await cache.get(cacheKey);
 
-    if (cachedCampaign) {
+    if (cachedCampaign && cachedCampaign.status !== 'running') {
       return res.json({
         success: true,
         data: cachedCampaign,
@@ -152,8 +163,10 @@ export const getCampaignById = async (req, res) => {
       });
     }
 
-    // Cache for 10 minutes
-    await cache.set(cacheKey, campaign, 600);
+    // Only cache non-running campaigns (running campaigns change frequently)
+    if (campaign.status !== 'running') {
+      await cache.set(cacheKey, campaign, 600);
+    }
 
     res.json({
       success: true,

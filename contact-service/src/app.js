@@ -3,6 +3,7 @@ const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
 const morgan = require('morgan');
+const { createTrafficLogger } = require('../../shared/trafficLogger.cjs');
 const { connectDB } = require('./config/database');
 const { connectRedis } = require('./config/redis');
 const { errorHandler, notFound } = require('./middleware/errorHandler');
@@ -28,6 +29,11 @@ app.use(cors()); // Enable CORS
 app.use(express.json()); // Parse JSON bodies
 app.use(express.urlencoded({ extended: true })); // Parse URL-encoded bodies
 app.use(morgan('dev')); // Logging
+
+// Traffic logger - writes req/res to logs/contact-service-YYYY-MM-DD.log
+const [captureRes, logTraffic] = createTrafficLogger('contact-service', morgan);
+app.use(captureRes);
+app.use(logTraffic);
 
 // Health check route
 app.get('/health', (req, res) => {

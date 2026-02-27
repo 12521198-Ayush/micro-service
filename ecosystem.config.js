@@ -56,7 +56,7 @@ module.exports = {
     {
       name: 'template-service',
       cwd: '/var/www/html/microservices-nyife/micro-service/template-service',
-      script: 'src/app.js',
+      script: 'src/server.js',
       interpreter: 'node',
       node_args: '--experimental-modules',
       env: {

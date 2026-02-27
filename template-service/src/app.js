@@ -3,6 +3,7 @@ import helmet from 'helmet';
 import cors from 'cors';
 import morgan from 'morgan';
 import templatesRouter from './routes/templates.js';
+import internalRouter from './routes/internal.js';
 import flowsRouter from './flows/routes/flows.js';
 import flowWebhooksRouter from './flows/routes/flowWebhooks.js';
 import metaWebhooksRouter from './routes/metaWebhooks.js';
@@ -45,6 +46,7 @@ app.get('/health', async (req, res) => {
 });
 
 app.use('/api/templates', templatesRouter);
+app.use('/api/internal', internalRouter);
 app.use('/flows', flowsRouter);
 app.use('/webhooks', flowWebhooksRouter);
 app.use('/webhooks', metaWebhooksRouter);

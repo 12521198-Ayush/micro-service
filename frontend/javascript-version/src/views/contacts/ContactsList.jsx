@@ -104,7 +104,7 @@ const ContactsList = () => {
       setContacts(response.data || [])
       setTotalContacts(response.pagination?.total || 0)
     } catch (error) {
-      if (error.status === 401 || error.status === 403) {
+      if (error.status === 401) {
         signOut({ callbackUrl: '/login' })
       }
       setSnackbar({ open: true, message: error.message || 'Failed to fetch contacts', severity: 'error' })

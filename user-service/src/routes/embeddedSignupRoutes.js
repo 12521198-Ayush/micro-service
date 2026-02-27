@@ -40,6 +40,13 @@ router.post('/complete', verifyToken, EmbeddedSignupController.completeSignup);
 router.get('/accounts', verifyToken, EmbeddedSignupController.getConnectedAccounts);
 
 /**
+ * @route   GET /user-service/api/embedded-signup/waba_accounts_details
+ * @desc    Get WABA accounts with numbers details
+ * @access  Private
+ */
+router.get('/waba_accounts_details', verifyToken, EmbeddedSignupController.getWabaAccountsDetails);
+
+/**
  * @route   DELETE /user-service/api/embedded-signup/accounts/:wabaId
  * @desc    Disconnect a WABA account
  * @access  Private

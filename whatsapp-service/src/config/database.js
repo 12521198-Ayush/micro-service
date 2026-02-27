@@ -11,7 +11,10 @@ const pool = mysql.createPool({
   database: process.env.DB_NAME || 'whatsapp_service',
   waitForConnections: true,
   connectionLimit: 10,
-  queueLimit: 0
+  queueLimit: 0,
+  enableKeepAlive: true,
+  keepAliveInitialDelay: 10000,
+  connectTimeout: 30000
 });
 
 export const connectDB = async () => {

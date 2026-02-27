@@ -23,27 +23,30 @@ const pickFirstNonEmpty = (...values) => {
 
 export const resolveTenantContext = (req) => {
   const organizationId = pickFirstNonEmpty(
+    req.headers['x-organization-id'],
     req.user?.organizationId,
     req.user?.organization_id,
-    req.headers['x-organization-id']
+    // Fallback: derive from user ID if no org is assigned yet
+    req.user?.userId ? `user_${req.user.userId}` : null,
+    req.user?.id ? `user_${req.user.id}` : null
   );
 
   const metaBusinessAccountId = pickFirstNonEmpty(
+    req.headers['x-meta-business-account-id'],
     req.user?.metaBusinessAccountId,
-    req.user?.meta_business_account_id,
-    req.headers['x-meta-business-account-id']
+    req.user?.meta_business_account_id
   );
 
   const metaAppId = pickFirstNonEmpty(
+    req.headers['x-meta-app-id'],
     req.user?.metaAppId,
-    req.user?.meta_app_id,
-    req.headers['x-meta-app-id']
+    req.user?.meta_app_id
   );
 
   const metaPhoneNumberId = pickFirstNonEmpty(
+    req.headers['x-meta-phone-number-id'],
     req.user?.metaPhoneNumberId,
-    req.user?.meta_phone_number_id,
-    req.headers['x-meta-phone-number-id']
+    req.user?.meta_phone_number_id
   );
 
   return {

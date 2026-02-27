@@ -50,6 +50,15 @@ const embeddedSignupService = {
   },
 
   /**
+   * Get all connected WABA accounts with numbers details
+   * @returns {Promise}
+   */
+  getWabaAccountsDetails: async () => {
+    const response = await api.get('/api/embedded-signup/waba_accounts_details')
+    return response.data
+  },
+
+  /**
    * Disconnect a WABA account
    * @param {string} wabaId
    * @returns {Promise}

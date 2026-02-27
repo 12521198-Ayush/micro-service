@@ -1,6 +1,6 @@
 import pool from '../config/database.js';
 
-// Helper function to convert ISO datetime to MySQL format
+// Helper function to convert ISO datetime to MySQL format (UTC to match MySQL server timezone)
 const formatDateTimeForMySQL = (isoString) => {
   if (!isoString) return null;
   const date = new Date(isoString);

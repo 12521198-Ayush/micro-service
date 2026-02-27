@@ -105,7 +105,7 @@ const ContactsGroupsPage = () => {
       const response = await getGroups(session.accessToken)
       setGroups(response.data || [])
     } catch (error) {
-      if (error.status === 401 || error.status === 403) {
+      if (error.status === 401) {
         signOut({ callbackUrl: '/login' })
       }
       console.error('Failed to fetch groups:', error)

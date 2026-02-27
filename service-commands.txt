@@ -49,15 +49,15 @@ pm2 delete user-service
 pm2 restart ecosystem.config.js
 
 # Restart a single service
-pm2 restart user-service
+pm2 restart nyife-user-service
 pm2 restart contact-service
-pm2 restart campaign-service
-pm2 restart template-service
-pm2 restart team-service
-pm2 restart whatsapp-service
-pm2 restart kafka-service
+pm2 restart nyife-campaign-service
+pm2 restart nyife-template-service
+pm2 restart nyife-team-service
+pm2 restart nyife-whatsapp-service
+pm2 restart nyife-kafka-service
 pm2 restart automation-service
-pm2 restart frontend
+pm2 restart nyife-frontend
 
 # Reload all services (zero-downtime restart)
 pm2 reload ecosystem.config.js

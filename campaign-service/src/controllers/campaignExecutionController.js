@@ -48,20 +48,19 @@ export const executeCampaign = async (req, res) => {
       });
     }
 
-    // Get template details
+    // Get template details (use internal endpoint - scoped by org only, not WABA)
     const templateResponse = await axios.get(
-      `${TEMPLATE_SERVICE_URL}/api/templates/${campaign.template_id}`,
+      `${TEMPLATE_SERVICE_URL}/api/internal/templates/${campaign.template_id}`,
       { headers: { Authorization: authToken } }
     );
     const template = templateResponse.data.data;
 
-    // Get group contacts
+    // Get group contacts - use the contacts/group endpoint which queries the direct group_id FK
     const contactsResponse = await axios.get(
-      `${CONTACT_SERVICE_URL}/api/groups/${campaign.group_id}`,
+      `${CONTACT_SERVICE_URL}/api/contacts/group/${campaign.group_id}?limit=10000`,
       { headers: { Authorization: authToken } }
     );
-    const groupData = contactsResponse.data.data || {};
-    const contacts = groupData.directContacts || groupData.contacts || [];
+    const contacts = contactsResponse.data.data || [];
 
     if (contacts.length === 0) {
       return res.status(400).json({
@@ -70,9 +69,16 @@ export const executeCampaign = async (req, res) => {
       });
     }
 
+    // Parse campaign metadata once
+    const campaignMetadata = campaign.metadata
+      ? (typeof campaign.metadata === 'string' ? JSON.parse(campaign.metadata) : campaign.metadata)
+      : {};
+    const selectedWabaId = campaignMetadata.wabaId || campaignMetadata.waba_id || null;
+    const selectedPhoneNumberId = campaignMetadata.phoneNumberId || campaignMetadata.phone_number_id || null;
+
     // Get user's WABA details
     const userResponse = await axios.get(
-      `${USER_SERVICE_URL}/api/embedded-signup/accounts`,
+      `${USER_SERVICE_URL}/user-service/api/embedded-signup/accounts`,
       { headers: { Authorization: authToken } }
     );
     const wabaAccounts = userResponse.data.data || [];
@@ -84,10 +90,40 @@ export const executeCampaign = async (req, res) => {
       });
     }
 
-    // Use the first connected account (or can be specified in campaign)
-    const wabaAccount = wabaAccounts[0];
-    const phoneNumber = wabaAccount.phoneNumbers[0];
+    // Match WABA account based on selected WABA or template WABA
+    const templateWabaId = template.meta_business_account_id || template.metaBusinessAccountId || template.waba_id;
+    let wabaAccount = null;
 
+    if (selectedWabaId) {
+      wabaAccount = wabaAccounts.find(a => a.wabaId === selectedWabaId);
+      if (!wabaAccount) {
+        return res.status(400).json({
+          success: false,
+          error: 'Selected WABA account is not connected'
+        });
+      }
+    } else if (templateWabaId) {
+      wabaAccount = wabaAccounts.find(a => a.wabaId === templateWabaId);
+    }
+
+    // Fallback to first account if no match
+    if (!wabaAccount) {
+      wabaAccount = wabaAccounts[0];
+      console.warn(`Could not match template WABA ${templateWabaId} to user accounts, using first account ${wabaAccount.wabaId}`);
+    }
+
+    let phoneNumber = null;
+    if (selectedPhoneNumberId) {
+      phoneNumber = wabaAccount.phoneNumbers?.find(p => p.phoneNumberId === selectedPhoneNumberId);
+      if (!phoneNumber) {
+        return res.status(400).json({
+          success: false,
+          error: 'Selected phone number is not connected to the chosen WABA account'
+        });
+      }
+    } else {
+      phoneNumber = wabaAccount.phoneNumbers?.[0];
+    }
     if (!phoneNumber) {
       return res.status(400).json({
         success: false,
@@ -95,11 +131,14 @@ export const executeCampaign = async (req, res) => {
       });
     }
 
-    // Update campaign status to running
+    console.log(`Campaign ${id}: Using WABA ${wabaAccount.wabaId}, phone ${phoneNumber.phoneNumberId} for template "${template.name}" (lang: ${template.language})`);
+
+    // Update campaign status to running with template/WABA details
     await Campaign.update(id, userId, {
       status: 'running',
       total_recipients: contacts.length,
-      started_at: new Date()
+      started_at: new Date(),
+      template_name: template.name || null
     });
 
     // Create campaign logs for each contact
@@ -114,7 +153,6 @@ export const executeCampaign = async (req, res) => {
     }
 
     // Parse campaign metadata for template parameters
-    const campaignMetadata = campaign.metadata ? (typeof campaign.metadata === 'string' ? JSON.parse(campaign.metadata) : campaign.metadata) : {};
 
     // Prepare recipients for Kafka
     const recipients = contacts.map(contact => ({
@@ -131,13 +169,24 @@ export const executeCampaign = async (req, res) => {
       }
     }));
 
+    // Get access token for the matched WABA
+    const accessToken = await getAccessToken(wabaAccount.wabaId, userId, authToken);
+
+    // Use the exact language from the template (e.g. "en_US", not "en")
+    const templateLanguage = template.language || 'en_US';
+
     // Publish campaign started event to Kafka
     await publishCampaignStarted(id, {
       phoneNumberId: phoneNumber.phoneNumberId,
-      accessToken: await getAccessToken(wabaAccount.wabaId, userId),
+      wabaId: wabaAccount.wabaId,
+      accessToken,
       templateName: template.name,
-      language: template.language || 'en',
-      components: campaignMetadata.components || template.components || [],
+      language: templateLanguage,
+      // Pass the pre-built components from campaign metadata (built by the UI)
+      // These are the actual WhatsApp API component parameters (header, body, buttons)
+      components: campaignMetadata.components || [],
+      // Also pass the full template components definition for reference
+      templateComponents: template.components || [],
       recipients
     });
 
@@ -475,26 +524,27 @@ export const scheduleCampaign = async (req, res) => {
 };
 
 // Helper function to get access token for a WABA
-async function getAccessToken(wabaId, userId) {
-  // This would typically be fetched from user service or database
-  // For now, using environment variable as fallback
+async function getAccessToken(wabaId, userId, authToken) {
+  // Query the user_service DB directly for the stored access token
   try {
-    const response = await axios.get(
-      `${USER_SERVICE_URL}/api/embedded-signup/accounts`,
-      { 
-        headers: { 
-          Authorization: `Bearer ${process.env.INTERNAL_API_KEY}`,
-          'X-User-Id': userId
-        } 
-      }
+    const pool = (await import('../config/database.js')).default;
+    const [rows] = await pool.execute(
+      'SELECT access_token FROM user_service.waba_accounts WHERE waba_id = ? AND user_id = ?',
+      [wabaId, userId]
     );
-    const accounts = response.data.data || [];
-    const account = accounts.find(a => a.wabaId === wabaId);
-    return account?.accessToken || process.env.WHATSAPP_ACCESS_TOKEN;
-  } catch (error) {
-    console.error('Error fetching access token:', error);
+    if (rows.length > 0 && rows[0].access_token) {
+      return rows[0].access_token;
+    }
+  } catch (dbError) {
+    console.error('Error fetching access token from DB:', dbError.message);
+  }
+
+  // Fallback: try environment variable
+  if (process.env.WHATSAPP_ACCESS_TOKEN) {
     return process.env.WHATSAPP_ACCESS_TOKEN;
   }
+
+  throw new Error('Unable to retrieve WhatsApp access token for WABA: ' + wabaId);
 }
 
 export default {

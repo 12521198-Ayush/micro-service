@@ -139,7 +139,7 @@ const CampaignView = ({ campaignId }) => {
       setCampaign(campaignRes.data)
       if (statsRes?.data) setStats(statsRes.data)
     } catch (error) {
-      if (error.status === 401 || error.status === 403) {
+      if (error.status === 401) {
         signOut({ callbackUrl: '/login' })
       }
       setSnackbar({ open: true, message: error.message || 'Failed to load campaign', severity: 'error' })
@@ -227,7 +227,7 @@ const CampaignView = ({ campaignId }) => {
       fetchCampaign()
       fetchMessages()
     } catch (error) {
-      if (error.status === 401 || error.status === 403) {
+      if (error.status === 401) {
         signOut({ callbackUrl: '/login' })
       }
       setSnackbar({ open: true, message: error.message || `Failed to ${action} campaign`, severity: 'error' })
@@ -443,6 +443,13 @@ const CampaignView = ({ campaignId }) => {
               </Box>
               <Divider sx={{ my: 1.5 }} />
               <Box sx={{ mb: 2 }}>
+                <Typography variant="caption" color="textSecondary">Completed At</Typography>
+                <Typography variant="body2">
+                  {campaign.completed_at ? new Date(campaign.completed_at).toLocaleString() : '-'}
+                </Typography>
+              </Box>
+              <Divider sx={{ my: 1.5 }} />
+              <Box sx={{ mb: 2 }}>
                 <Typography variant="caption" color="textSecondary">Created</Typography>
                 <Typography variant="body2">
                   {campaign.created_at ? new Date(campaign.created_at).toLocaleString() : '-'}
@@ -511,8 +518,11 @@ const CampaignView = ({ campaignId }) => {
                           <TableCell>Contact</TableCell>
                           <TableCell>Phone</TableCell>
                           <TableCell>Status</TableCell>
-                          <TableCell>Retries</TableCell>
-                          <TableCell>Last Updated</TableCell>
+                          <TableCell>WhatsApp ID</TableCell>
+                          <TableCell>Template</TableCell>
+                          <TableCell>Sent At</TableCell>
+                          <TableCell>Delivered At</TableCell>
+                          <TableCell>Read At</TableCell>
                         </TableRow>
                       </TableHead>
                       <TableBody>
@@ -532,15 +542,28 @@ const CampaignView = ({ campaignId }) => {
                               />
                             </TableCell>
                             <TableCell>
-                              <Typography variant="body2">{msg.retry_count || 0}</Typography>
+                              <Tooltip title={msg.message_id || 'N/A'}>
+                                <Typography variant="caption" sx={{ maxWidth: 120, display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                  {msg.message_id ? msg.message_id.slice(-12) : '-'}
+                                </Typography>
+                              </Tooltip>
+                            </TableCell>
+                            <TableCell>
+                              <Typography variant="caption">{msg.template_name || '-'}</Typography>
                             </TableCell>
                             <TableCell>
                               <Typography variant="caption">
-                                {msg.updated_at
-                                  ? new Date(msg.updated_at).toLocaleString()
-                                  : msg.sent_at
-                                    ? new Date(msg.sent_at).toLocaleString()
-                                    : '-'}
+                                {msg.sent_at ? new Date(msg.sent_at).toLocaleString() : '-'}
+                              </Typography>
+                            </TableCell>
+                            <TableCell>
+                              <Typography variant="caption">
+                                {msg.delivered_at ? new Date(msg.delivered_at).toLocaleString() : '-'}
+                              </Typography>
+                            </TableCell>
+                            <TableCell>
+                              <Typography variant="caption">
+                                {msg.read_at ? new Date(msg.read_at).toLocaleString() : '-'}
                               </Typography>
                             </TableCell>
                           </TableRow>

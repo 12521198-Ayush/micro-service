@@ -3,6 +3,7 @@ import dotenv from 'dotenv';
 import helmet from 'helmet';
 import cors from 'cors';
 import morgan from 'morgan';
+import { createTrafficLogger } from '../../shared/trafficLogger.mjs';
 import authRoutes from './routes/authRoutes.js';
 import organizationRoutes from './routes/organizationRoutes.js';
 import walletRoutes from './routes/walletRoutes.js';
@@ -29,6 +30,11 @@ app.use(cors());
 app.use(morgan('dev'));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+// Traffic logger - writes req/res to logs/user-service-YYYY-MM-DD.log
+const [captureRes, logTraffic] = createTrafficLogger('user-service', morgan);
+app.use(captureRes);
+app.use(logTraffic);
 
 // Health check
 app.get('/health', (req, res) => {

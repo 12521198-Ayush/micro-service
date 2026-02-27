@@ -78,7 +78,7 @@ export const authOptions = {
     },
     session: {
         strategy: 'jwt',
-        maxAge: 24 * 60 * 60 // 24 hours (matching API token expiry)
+        maxAge: 7 * 24 * 60 * 60 // 7 days (matching API token expiry)
     },
     secret: process.env.NEXTAUTH_SECRET
 }

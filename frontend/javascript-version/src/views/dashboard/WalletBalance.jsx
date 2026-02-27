@@ -36,7 +36,7 @@ const WalletBalance = () => {
             } catch (err) {
                 console.error('Failed to fetch wallet balance:', err)
 
-                if (err.status === 401 || err.status === 403) {
+                if (err.status === 401) {
                     signOut({ callbackUrl: '/login' })
                 }
             } finally {

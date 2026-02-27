@@ -72,7 +72,7 @@ const Billing = () => {
       setTransactions(transactionsRes.transactions || transactionsRes.data || [])
       setTotalTransactions(transactionsRes.pagination?.total || transactionsRes.total || 0)
     } catch (error) {
-      if (error.status === 401 || error.status === 403) {
+      if (error.status === 401) {
         signOut({ callbackUrl: '/login' })
       }
       setSnackbar({ open: true, message: error.message || 'Failed to fetch wallet data', severity: 'error' })

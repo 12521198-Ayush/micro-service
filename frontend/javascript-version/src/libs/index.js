@@ -51,9 +51,14 @@ export {
 export {
   createTemplate,
   listTemplates,
+  getTemplateByUuid,
   updateTemplate,
+  deleteTemplate,
   syncTemplates,
-  getTemplateById
+  publishTemplate,
+  validateTemplate,
+  getTemplateCapabilities,
+  uploadTemplateMedia
 } from './template-service'
 
 // Campaign Service
@@ -89,3 +94,14 @@ export {
   getMessageById,
   getConversation
 } from './whatsapp-service'
+
+// Chat / Inbox Service
+export {
+  getChats,
+  getChatDetail,
+  getChatMessages,
+  sendChatMessage,
+  markChatAsRead,
+  closeChat,
+  getChatStats
+} from './chat-service'

@@ -11,7 +11,8 @@ const pool = mysql.createPool({
   database: process.env.DB_NAME || 'campaign_service',
   waitForConnections: true,
   connectionLimit: 10,
-  queueLimit: 0
+  queueLimit: 0,
+  timezone: '+00:00'
 });
 
 // Test database connection

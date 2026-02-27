@@ -1,8 +1,12 @@
 const cron = require('node-cron');
 const { MySQLPool } = require('../config/database');
-const { produceMessage, TOPICS } = require('../config/kafka');
 const logger = require('../utils/logger');
 const config = require('../config');
+const jwt = require('jsonwebtoken');
+const http = require('http');
+
+const CAMPAIGN_SERVICE_URL = process.env.CAMPAIGN_SERVICE_URL || 'http://localhost:3003';
+const JWT_SECRET = process.env.JWT_SECRET || 'nyife_jwt_secret_key_2024_super_secure';
 
 class CampaignScheduler {
   constructor() {
@@ -32,109 +36,104 @@ class CampaignScheduler {
   }
 
   async checkScheduledCampaigns() {
+    // Query the campaign_service database directly (cross-DB) for due campaigns
     const query = `
-      SELECT 
-        c.id, c.name, c.user_id, c.organization_id,
-        c.template_id, c.group_id, c.scheduled_at,
-        t.name as template_name, t.language as template_language,
-        p.phone_number_id, w.access_token
-      FROM campaigns c
-      JOIN templates t ON c.template_id = t.id
-      JOIN waba_accounts w ON c.organization_id = w.organization_id
-      LEFT JOIN phone_numbers p ON w.waba_id = p.waba_id
-      WHERE c.status = 'scheduled' 
-        AND c.scheduled_at <= NOW()
-        AND c.scheduled_at > NOW() - INTERVAL 5 MINUTE
-      FOR UPDATE SKIP LOCKED
+      SELECT id, name, user_id
+      FROM campaign_service.campaigns
+      WHERE status = 'scheduled'
+        AND scheduled_at <= NOW()
+        AND scheduled_at > NOW() - INTERVAL 10 MINUTE
     `;
 
-    const client = await this.pool.connect();
-    try {
-      await client.query('BEGIN');
+    const result = await this.pool.query(query);
+    const campaigns = result.rows;
 
-      const result = await client.query(query);
+    if (campaigns.length === 0) return;
 
-      for (const campaign of result.rows) {
-        await this.triggerCampaign(client, campaign);
-      }
+    logger.info(`Found ${campaigns.length} scheduled campaign(s) due for execution`);
 
-      await client.query('COMMIT');
-    } catch (error) {
-      await client.query('ROLLBACK');
-      throw error;
-    } finally {
-      client.release();
+    for (const campaign of campaigns) {
+      await this.triggerCampaign(campaign);
     }
   }
 
-  async triggerCampaign(client, campaign) {
+  async triggerCampaign(campaign) {
     try {
       logger.info(`Triggering scheduled campaign: ${campaign.id} - ${campaign.name}`);
 
-      // Get contacts from group
-      const contactsQuery = `
-        SELECT c.phone_number, c.name, c.custom_fields
-        FROM contacts c
-        JOIN contact_groups cg ON c.id = cg.contact_id
-        WHERE cg.group_id = $1
-      `;
-      const contactsResult = await client.query(contactsQuery, [campaign.group_id]);
-      const contacts = contactsResult.rows;
+      // Generate a service JWT for the campaign owner so the execute endpoint can authenticate
+      const serviceToken = jwt.sign(
+        { id: campaign.user_id, email: 'scheduler@system', service: 'campaign-scheduler' },
+        JWT_SECRET,
+        { expiresIn: '5m' }
+      );
 
-      if (contacts.length === 0) {
-        logger.warn(`No contacts found for campaign ${campaign.id}`);
-        await this.updateCampaignStatus(client, campaign.id, 'failed', 'No contacts in group');
-        return;
+      // Call the campaign-service execute endpoint (reuses all existing logic)
+      const response = await this.httpPost(
+        `${CAMPAIGN_SERVICE_URL}/api/campaigns/${campaign.id}/execute`,
+        {},
+        { Authorization: `Bearer ${serviceToken}` }
+      );
+
+      if (response.success) {
+        logger.info(`Campaign ${campaign.id} triggered successfully via execute API`);
+      } else {
+        logger.error(`Campaign ${campaign.id} execute API returned error: ${response.error || JSON.stringify(response)}`);
       }
-
-      // Update campaign status to running
-      await this.updateCampaignStatus(client, campaign.id, 'running', null, contacts.length);
-
-      // Prepare recipients
-      const recipients = contacts.map(contact => ({
-        phone: contact.phone_number,
-        name: contact.name,
-        variables: {
-          name: contact.name,
-          ...(contact.custom_fields || {})
-        }
-      }));
-
-      // Publish campaign started event to Kafka
-      await produceMessage(TOPICS.CAMPAIGN_EVENTS, [{
-        key: campaign.id.toString(),
-        value: JSON.stringify({
-          event: 'campaign_started',
-          campaignId: campaign.id,
-          data: {
-            phoneNumberId: campaign.phone_number_id,
-            accessToken: campaign.access_token,
-            templateName: campaign.template_name,
-            language: campaign.template_language || 'en',
-            recipients
-          },
-          timestamp: Date.now()
-        })
-      }]);
-
-      logger.info(`Campaign ${campaign.id} triggered with ${recipients.length} recipients`);
     } catch (error) {
-      logger.error(`Failed to trigger campaign ${campaign.id}:`, error);
-      await this.updateCampaignStatus(client, campaign.id, 'failed', error.message);
+      logger.error(`Failed to trigger campaign ${campaign.id}:`, error.message || error);
+
+      // Mark campaign as failed in the DB so it's not retried endlessly
+      try {
+        await this.pool.query(
+          `UPDATE campaign_service.campaigns SET status = 'failed', updated_at = NOW() WHERE id = ? AND status = 'scheduled'`,
+          [campaign.id]
+        );
+      } catch (dbErr) {
+        logger.error(`Failed to mark campaign ${campaign.id} as failed:`, dbErr.message);
+      }
     }
   }
 
-  async updateCampaignStatus(client, campaignId, status, errorMessage = null, totalRecipients = null) {
-    const query = `
-      UPDATE campaigns 
-      SET status = $1, 
-          error_message = $2,
-          total_recipients = COALESCE($3, total_recipients),
-          started_at = CASE WHEN $1 = 'running' THEN NOW() ELSE started_at END,
-          updated_at = NOW()
-      WHERE id = $4
-    `;
-    await client.query(query, [status, errorMessage, totalRecipients, campaignId]);
+  /**
+   * Simple HTTP POST helper (no external dependencies needed)
+   */
+  httpPost(url, body, headers) {
+    return new Promise((resolve, reject) => {
+      const parsed = new URL(url);
+      const postData = JSON.stringify(body);
+
+      const options = {
+        hostname: parsed.hostname,
+        port: parsed.port || 80,
+        path: parsed.pathname,
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(postData),
+          ...headers
+        }
+      };
+
+      const req = http.request(options, (res) => {
+        let data = '';
+        res.on('data', chunk => data += chunk);
+        res.on('end', () => {
+          try {
+            resolve(JSON.parse(data));
+          } catch {
+            resolve({ success: false, error: data });
+          }
+        });
+      });
+
+      req.on('error', reject);
+      req.setTimeout(30000, () => {
+        req.destroy(new Error('Request timeout'));
+      });
+      req.write(postData);
+      req.end();
+    });
   }
 
   async stop() {

@@ -1,7 +1,9 @@
 const express = require('express');
 const cors = require('cors');
+const morgan = require('morgan');
 const config = require('./config');
 const logger = require('./utils/logger');
+const { createTrafficLogger } = require('../../shared/trafficLogger.cjs');
 const { initializeKafka, disconnectKafka, TOPICS } = require('./config/kafka');
 const messageProcessor = require('./consumers/messageProcessor');
 const webhookProcessor = require('./consumers/webhookProcessor');
@@ -13,6 +15,11 @@ const app = express();
 // Middleware
 app.use(cors());
 app.use(express.json());
+
+// Traffic logger - writes req/res to logs/kafka-service-YYYY-MM-DD.log
+const [captureRes, logTraffic] = createTrafficLogger('kafka-service', morgan);
+app.use(captureRes);
+app.use(logTraffic);
 
 // Health check endpoint
 app.get('/health', (req, res) => {

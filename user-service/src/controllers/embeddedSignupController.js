@@ -419,6 +419,84 @@ class EmbeddedSignupController {
   }
 
   /**
+   * Get WABA accounts details with numbers list
+   */
+  static async getWabaAccountsDetails(req, res) {
+    try {
+      const userId = req.user?.id || req.user?.userId;
+
+      const connection = await pool.getConnection();
+      try {
+        const query = `
+          SELECT 
+            w.id, w.waba_id, w.business_name, w.currency, w.timezone_id,
+            w.template_namespace, w.review_status, w.business_verification_status,
+            w.organization_id, w.status as waba_status, w.created_at,
+            p.phone_number_id, p.display_phone_number, p.verified_name,
+            p.quality_rating, p.platform_type, p.status as phone_status,
+            p.messaging_limit_tier, p.code_verification_status, p.name_status
+          FROM waba_accounts w
+          LEFT JOIN phone_numbers p ON w.waba_id = p.waba_id
+          WHERE w.user_id = ?
+          ORDER BY w.created_at DESC
+        `;
+
+        const [rows] = await connection.execute(query, [userId]);
+
+        // Group phone numbers by WABA
+        const accounts = {};
+        rows.forEach(row => {
+          if (!accounts[row.waba_id]) {
+            accounts[row.waba_id] = {
+              id: row.id,
+              wabaId: row.waba_id,
+              businessName: row.business_name,
+              currency: row.currency,
+              timezoneId: row.timezone_id,
+              templateNamespace: row.template_namespace,
+              reviewStatus: row.review_status,
+              businessVerificationStatus: row.business_verification_status,
+              organizationId: row.organization_id,
+              status: row.waba_status,
+              createdAt: row.created_at,
+              phoneNumbers: [],
+              numbers: []
+            };
+          }
+          if (row.phone_number_id) {
+            const number = {
+              phoneNumberId: row.phone_number_id,
+              displayPhoneNumber: row.display_phone_number,
+              verifiedName: row.verified_name,
+              qualityRating: row.quality_rating,
+              platformType: row.platform_type,
+              status: row.phone_status,
+              messagingLimitTier: row.messaging_limit_tier,
+              codeVerificationStatus: row.code_verification_status,
+              nameStatus: row.name_status
+            };
+            accounts[row.waba_id].phoneNumbers.push(number);
+            accounts[row.waba_id].numbers.push(number);
+          }
+        });
+
+        res.json({
+          success: true,
+          data: Object.values(accounts)
+        });
+      } finally {
+        connection.release();
+      }
+    } catch (error) {
+      console.error('Get WABA Accounts Details Error:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Failed to fetch WABA account details'
+      });
+    }
+  }
+
+  /**
    * Disconnect WABA account
    */
   static async disconnectAccount(req, res) {

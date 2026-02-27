@@ -82,7 +82,7 @@ const AccountDetails = () => {
       } catch (err) {
         console.error('Failed to fetch profile:', err)
 
-        if (err.status === 401 || err.status === 403) {
+        if (err.status === 401) {
           signOut({ callbackUrl: '/login' })
         }
       } finally {
@@ -148,7 +148,7 @@ const AccountDetails = () => {
     } catch (err) {
       setError(err.message || 'Failed to update profile')
 
-      if (err.status === 401 || err.status === 403) {
+      if (err.status === 401) {
         signOut({ callbackUrl: '/login' })
       }
     } finally {
